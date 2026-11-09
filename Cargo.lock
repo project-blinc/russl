@@ -201,7 +201,7 @@ dependencies = [
 
 [[package]]
 name = "russl"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "naga",
  "russl_macros",
@@ -209,7 +209,7 @@ dependencies = [
 
 [[package]]
 name = "russl_build"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "russl_compiler",
@@ -217,7 +217,7 @@ dependencies = [
 
 [[package]]
 name = "russl_cli"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "russl_compiler",
@@ -225,7 +225,7 @@ dependencies = [
 
 [[package]]
 name = "russl_compiler"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "ariadne",
  "naga",
@@ -259,7 +259,7 @@ dependencies = [
 
 [[package]]
 name = "russl_macros"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",

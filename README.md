@@ -26,7 +26,7 @@ artifacts with those values.
 
 ```toml
 [dependencies]
-russl = { git = "https://github.com/project-blinc/russl" }
+russl = "0.1"
 ```
 
 A `russl!` block is one shader module. One with entry points expands to `WGSL`, `MSL`, `HLSL`,

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "fixtures/*"]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -11,11 +11,11 @@ repository = "https://github.com/project-blinc/russl"
 authors = ["Damilare Akinlaja <dreakinlaja@gmail.com>"]
 
 [workspace.dependencies]
-russl_compiler = { path = "crates/russl_compiler", version = "0.0.1" }
-russl_macros = { path = "crates/russl_macros", version = "0.0.1" }
-russl = { path = "crates/russl", version = "0.0.1" }
-# Pinned to the version Blinc's wgpu uses; bumped together.
-naga = { version = "=26.0.0", features = ["wgsl-in", "wgsl-out", "msl-out", "hlsl-out", "spv-out", "glsl-out"] }
+russl_compiler = { path = "crates/russl_compiler", version = "0.1.0" }
+russl_macros = { path = "crates/russl_macros", version = "0.1.0" }
+russl = { path = "crates/russl", version = "0.1.0" }
+# The naga minor version Blinc's wgpu uses; bumped together.
+naga = { version = "~26.0", features = ["wgsl-in", "wgsl-out", "msl-out", "hlsl-out", "spv-out", "glsl-out"] }
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full"] }

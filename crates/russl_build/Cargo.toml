@@ -7,6 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+# Not published yet: it compiles single files, and imports across files are still to come.
+publish = false
 
 [dependencies]
 russl_compiler = { workspace = true, features = ["ariadne"] }
