@@ -1,0 +1,23 @@
+struct Globals { tint: Vec4, scale: f32 }
+
+struct VsOut {
+    #[builtin(position)] pos: Vec4,
+    #[location(0)] uv: Vec2,
+}
+
+#[group(0)] #[binding(0)] static GLOBALS: Uniform<Globals>;
+const CORNERS: [Vec2; 3] = [Vec2::new(-1.0, -1.0), Vec2::new(3.0, -1.0), Vec2::new(-1.0, 3.0)];
+
+#[vertex]
+fn vs(#[builtin(vertex_index)] vi: u32) -> VsOut {
+    let corner = CORNERS[vi];
+    VsOut { pos: Vec4::new(corner * GLOBALS.scale, 0.0, 1.0), uv: corner * 0.5 + 0.5 }
+}
+
+#[fragment]
+#[location(0)]
+fn fs(input: VsOut) -> Vec4 {
+    let mut c = GLOBALS.tint;
+    c.xy *= input.uv;
+    c
+}

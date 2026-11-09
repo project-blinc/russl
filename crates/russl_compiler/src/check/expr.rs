@@ -567,16 +567,18 @@ impl Checker<'_> {
                 }
                 preset
             }
-            // An array literal: one element type.
+            // An array literal: one element type. Elements that are all unsuffixed literals
+            // stay abstract, so the context decides: `[1, 2]` is `[u32; 2]` where one is wanted.
             _ => {
                 let first = parts[0];
                 let mut t = self.infer(first);
                 for &p in &parts[1..] {
                     t = self.unify(e, first, p);
                 }
-                let t = self.types.concrete(t);
-                for &p in parts {
-                    self.concretise(p, t);
+                if !self.types.is_abstract(t) {
+                    for &p in parts {
+                        self.concretise(p, t);
+                    }
                 }
                 self.types.add(Type::Array {
                     elem: t,

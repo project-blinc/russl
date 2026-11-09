@@ -7,7 +7,7 @@ use super::{Front, Item};
 use crate::diag::{Sink, Spans};
 use crate::hir::{self, GenericArg};
 use crate::intern::{Interner, Symbol};
-use crate::types::{Scalar, Type, TypeId, Types};
+use crate::types::{Scalar, StructId, Type, TypeId, Types};
 use std::collections::{HashMap, HashSet};
 use syn::spanned::Spanned;
 
@@ -73,6 +73,22 @@ pub struct Template {
     pub params: Vec<Param>,
 }
 
+pub struct StructTemplate {
+    pub(super) item: syn::ItemStruct,
+    pub(super) module: usize,
+    pub(super) params: Vec<Param>,
+}
+
+/// Generic structs, and each instance built: by template and arguments, and back.
+#[derive(Default)]
+pub struct Structs {
+    pub(super) templates: Vec<StructTemplate>,
+    instances: HashMap<(u32, Vec<GenericArg>), StructId>,
+    of: HashMap<StructId, (u32, Vec<GenericArg>)>,
+    /// Instances built and not yet handed to the module.
+    pub(super) built: Vec<hir::Struct>,
+}
+
 /// What instantiating a template needs from the front end, kept after it has built the
 /// program: every module's names, the constants array lengths read, and the templates.
 pub struct Generics {
@@ -80,6 +96,7 @@ pub struct Generics {
     public: Vec<HashSet<Symbol>>,
     const_src: Vec<Option<(syn::Expr, usize)>>,
     ext_names: Vec<String>,
+    structs: Structs,
     pub templates: Vec<Template>,
 }
 
@@ -87,12 +104,6 @@ impl Front<'_> {
     /// A generic function's parameters, or `None` after reporting why it cannot be one.
     pub(super) fn template(&mut self, func: &syn::ItemFn) -> Option<Template> {
         let g = &func.sig.generics;
-        if let Some(w) = &g.where_clause {
-            self.sink.error(
-                w.span(),
-                "put a parameter's bounds in its declaration: `<T: Float>`",
-            );
-        }
         if func.attrs.iter().any(|a| {
             ["vertex", "fragment", "compute"]
                 .iter()
@@ -101,6 +112,22 @@ impl Front<'_> {
             self.sink
                 .error(g.span(), "an entry point cannot be generic");
             return None;
+        }
+        let params = self.params(g);
+        Some(Template {
+            item: func.clone(),
+            module: self.current,
+            params,
+        })
+    }
+
+    /// A generic item's parameters, in declaration order.
+    pub(super) fn params(&mut self, g: &syn::Generics) -> Vec<Param> {
+        if let Some(w) = &g.where_clause {
+            self.sink.error(
+                w.span(),
+                "put a parameter's bounds in its declaration: `<T: Float>`",
+            );
         }
         let mut params = Vec::new();
         for p in &g.params {
@@ -145,11 +172,7 @@ impl Front<'_> {
                 }
             }
         }
-        Some(Template {
-            item: func.clone(),
-            module: self.current,
-            params,
-        })
+        params
     }
 
     pub(super) fn into_generics(self, templates: Vec<Template>) -> Generics {
@@ -158,8 +181,110 @@ impl Front<'_> {
             public: self.public,
             const_src: self.const_src,
             ext_names: self.ext_names,
+            structs: self.structs,
             templates,
         }
+    }
+
+    /// An instance of the generic struct `k`, built once per set of arguments. Its fields
+    /// resolve in the template's module; it belongs to the module naming it, whose host side
+    /// holds its twin.
+    pub(super) fn struct_instance(
+        &mut self,
+        k: u32,
+        args: Vec<GenericArg>,
+        span: proc_macro2::Span,
+    ) -> TypeId {
+        let error = self.types.error;
+        let template = &self.structs.templates[k as usize];
+        let name = template.item.ident.to_string();
+        if args.len() != template.params.len() {
+            self.sink.error(
+                span,
+                format!(
+                    "`{name}` takes {} generic arguments, {} given",
+                    template.params.len(),
+                    args.len()
+                ),
+            );
+            return error;
+        }
+        for (p, a) in template.params.iter().zip(&args) {
+            match (p, a) {
+                (Param::Type(n, bounds), GenericArg::Type(t)) => {
+                    if let Some(b) = bounds.iter().find(|b| !b.holds(self.types, *t)) {
+                        let have = self.types.name(*t, self.names);
+                        self.sink.error(
+                            span,
+                            format!(
+                                "`{name}` needs `{n}: {}`, and `{n}` is `{have}` here",
+                                b.name()
+                            ),
+                        );
+                        return error;
+                    }
+                }
+                (Param::Const(..), GenericArg::Const(_)) => {}
+                (Param::Type(n, _), _) => {
+                    self.sink.error(span, format!("`{n}` is a type parameter"));
+                    return error;
+                }
+                (Param::Const(n, _), _) => {
+                    self.sink.error(span, format!("`{n}` is a const parameter"));
+                    return error;
+                }
+            }
+        }
+        if let Some(&id) = self.structs.instances.get(&(k, args.clone())) {
+            return self.types.add(Type::Struct(id));
+        }
+        let display = {
+            let shown: Vec<String> = args
+                .iter()
+                .map(|a| match a {
+                    GenericArg::Type(t) => self.types.name(*t, self.names),
+                    GenericArg::Const(v) => v.to_string(),
+                })
+                .collect();
+            format!("{name}<{}>", shown.join(", "))
+        };
+        let sym = self.names.intern(&display);
+        let id = StructId(self.types.structs.len() as u32);
+        self.types.structs.push(crate::types::StructDef {
+            name: sym,
+            fields: Vec::new(),
+        });
+        self.structs.instances.insert((k, args.clone()), id);
+        self.structs.of.insert(id, (k, args.clone()));
+
+        let template = &self.structs.templates[k as usize];
+        let (item, module, params) = (
+            template.item.clone(),
+            template.module,
+            template.params.clone(),
+        );
+        let saved = (
+            std::mem::take(&mut self.generic_types),
+            std::mem::take(&mut self.generic_consts),
+            self.current,
+        );
+        for (p, a) in params.iter().zip(&args) {
+            match (p, a) {
+                (Param::Type(n, _), GenericArg::Type(t)) => {
+                    self.generic_types.insert(n.clone(), *t);
+                }
+                (Param::Const(n, ty), GenericArg::Const(v)) => {
+                    self.generic_consts.insert(n.clone(), (*v, *ty));
+                }
+                _ => {}
+            }
+        }
+        self.current = module;
+        let mut built = self.struct_fields(&item, id, sym);
+        (self.generic_types, self.generic_consts, self.current) = saved;
+        built.module = self.current as u32;
+        self.structs.built.push(built);
+        self.types.add(Type::Struct(id))
     }
 
     /// A type parameter bound for the function being built, else a builtin type by name.
@@ -211,7 +336,13 @@ impl Generics {
             })
             .collect();
         for (pat, &ty) in inputs.iter().zip(args) {
-            unify(&template.params, pat, ty, types, names, &mut out)?;
+            unify(
+                &template.params,
+                pat,
+                ty,
+                (types, names, &self.structs),
+                &mut out,
+            )?;
         }
         out.into_iter()
             .zip(&template.params)
@@ -268,6 +399,8 @@ impl Generics {
             generic_types,
             generic_consts,
             ext_names: std::mem::take(&mut self.ext_names),
+            struct_imports: Vec::new(),
+            structs: std::mem::take(&mut self.structs),
         };
         let mut built = f.function(&item);
         built.name = name;
@@ -275,7 +408,13 @@ impl Generics {
         self.public = f.public;
         self.const_src = f.const_src;
         self.ext_names = f.ext_names;
+        self.structs = f.structs;
         built
+    }
+
+    /// The struct instances built since the last call, for the module to hold.
+    pub fn take_structs(&mut self) -> Vec<hir::Struct> {
+        std::mem::take(&mut self.structs.built)
     }
 
     /// The parameter names of template `t`, for messages: `lerp::<Vec3>`.
@@ -303,10 +442,10 @@ fn unify(
     params: &[Param],
     pat: &syn::Type,
     ty: TypeId,
-    types: &Types,
-    names: &Interner,
+    cx: (&Types, &Interner, &Structs),
     out: &mut [Option<GenericArg>],
 ) -> Result<(), String> {
+    let (types, names, structs) = cx;
     let index = |name: &str, ty: bool| {
         params.iter().position(|p| match p {
             Param::Type(n, _) => ty && n == name,
@@ -336,7 +475,7 @@ fn unify(
         }
     };
     match pat {
-        syn::Type::Paren(p) => unify(params, &p.elem, ty, types, names, out),
+        syn::Type::Paren(p) => unify(params, &p.elem, ty, cx, out),
         syn::Type::Path(p) if p.qself.is_none() => {
             if let Some(i) = p
                 .path
@@ -346,11 +485,47 @@ fn unify(
             {
                 bind(out, i, GenericArg::Type(ty))?;
             }
+            // `Pair<T>` against an instance of `Pair`: each argument against the instance's.
+            if let (Some(seg), Type::Struct(id)) = (p.path.segments.last(), types.get(ty))
+                && let syn::PathArguments::AngleBracketed(g) = &seg.arguments
+                && let Some((k, args)) = structs.of.get(&id)
+                && structs.templates[*k as usize].item.ident == seg.ident
+            {
+                for (pa, a) in g.args.iter().zip(args) {
+                    match (pa, a) {
+                        (syn::GenericArgument::Type(t), GenericArg::Type(at)) => {
+                            unify(params, t, *at, cx, out)?;
+                        }
+                        (syn::GenericArgument::Type(syn::Type::Path(cp)), GenericArg::Const(v)) => {
+                            if let Some(i) = cp
+                                .path
+                                .get_ident()
+                                .and_then(|id| index(&id.to_string(), false))
+                            {
+                                bind(out, i, GenericArg::Const(*v))?;
+                            }
+                        }
+                        (
+                            syn::GenericArgument::Const(syn::Expr::Path(cp)),
+                            GenericArg::Const(v),
+                        ) => {
+                            if let Some(i) = cp
+                                .path
+                                .get_ident()
+                                .and_then(|id| index(&id.to_string(), false))
+                            {
+                                bind(out, i, GenericArg::Const(*v))?;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
             Ok(())
         }
         syn::Type::Array(a) => {
             if let Type::Array { elem, len } = types.get(ty) {
-                unify(params, &a.elem, elem, types, names, out)?;
+                unify(params, &a.elem, elem, cx, out)?;
                 if let (syn::Expr::Path(p), Some(n)) = (&a.len, len)
                     && let Some(i) = p
                         .path

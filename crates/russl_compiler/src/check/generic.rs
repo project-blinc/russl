@@ -117,6 +117,8 @@ impl Checker<'_> {
                     t as usize, &subst, sym, self.names, self.types, self.spans, self.sink,
                 );
                 func.instance = Some(label);
+                let built = self.generics.take_structs();
+                self.module.structs.extend(built);
                 let id = FnId(self.module.functions.len() as u32);
                 self.module.functions.push(func);
                 self.instances.insert((t, subst), id);

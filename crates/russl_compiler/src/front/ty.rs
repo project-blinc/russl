@@ -62,6 +62,20 @@ impl Front<'_> {
                             Some(Item::Struct(id)) if seg.arguments.is_none() => {
                                 self.types.add(Type::Struct(*id))
                             }
+                            Some(&Item::StructTemplate(k)) => match &seg.arguments {
+                                syn::PathArguments::AngleBracketed(g) => {
+                                    let args =
+                                        g.args.iter().filter_map(|a| self.generic_arg(a)).collect();
+                                    self.struct_instance(k, args, seg.span())
+                                }
+                                _ => {
+                                    self.sink.error(
+                                        seg.ident.span(),
+                                        format!("`{name}` takes generic arguments: `{name}<f32>`"),
+                                    );
+                                    self.types.error
+                                }
+                            },
                             _ => {
                                 self.sink
                                     .error(seg.ident.span(), format!("unknown type `{name}`"));
@@ -116,6 +130,40 @@ impl Front<'_> {
             }
             Err((span, message)) => {
                 self.sink.error(span, message);
+                None
+            }
+        }
+    }
+
+    /// One argument of a turbofish: a type, or a const parameter's value. A bare name is a
+    /// constant when one by that name is in scope, as Rust reads it.
+    pub(super) fn generic_arg(
+        &mut self,
+        a: &syn::GenericArgument,
+    ) -> Option<crate::hir::GenericArg> {
+        let value = |this: &mut Self, e: &syn::Expr| match this.const_value(e) {
+            Ok(v) => Some(crate::hir::GenericArg::Const(v)),
+            Err((span, message)) => {
+                this.sink.error(span, message);
+                None
+            }
+        };
+        match a {
+            syn::GenericArgument::Type(syn::Type::Path(p))
+                if p.path.get_ident().is_some_and(|i| self.is_constant(i)) =>
+            {
+                let e = syn::Expr::Path(syn::ExprPath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path: p.path.clone(),
+                });
+                value(self, &e)
+            }
+            syn::GenericArgument::Type(t) => Some(crate::hir::GenericArg::Type(self.ty(t))),
+            syn::GenericArgument::Const(e) => value(self, e),
+            other => {
+                self.sink
+                    .error(other.span(), "a generic argument is a type or a constant");
                 None
             }
         }

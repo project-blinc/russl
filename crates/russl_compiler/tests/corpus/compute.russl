@@ -1,0 +1,25 @@
+#[group(0)] #[binding(0)] static DATA: StorageMut<[u32]>;
+#[group(0)] #[binding(1)] static PARAMS: Uniform<UVec4>;
+static TILE: Workgroup<[u32; 64]>;
+
+fn collatz(n: u32) -> u32 {
+    let mut x = n;
+    let mut steps = 0u32;
+    while x > 1 {
+        x = if x % 2 == 0 { x / 2 } else { 3 * x + 1 };
+        steps += 1;
+    }
+    steps
+}
+
+fn total<const N: u32>(w: [u32; N]) -> u32 {
+    let mut s = 0u32;
+    for i in 0..N { s += w[i]; }
+    s
+}
+
+#[compute(workgroup_size(64))]
+fn main(#[builtin(global_invocation_id)] id: UVec3, #[builtin(local_invocation_index)] li: u32) {
+    TILE[li] = collatz(DATA[id.x] + PARAMS.x);
+    DATA[id.x] = TILE[li] + total([1, 2, 3]);
+}

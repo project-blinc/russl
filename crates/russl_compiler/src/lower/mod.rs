@@ -222,7 +222,7 @@ impl Lower<'_> {
         };
         let h = self.module.types.insert(
             naga::Type {
-                name: self.name(name),
+                name: Some(crate::types::ident_name(self.names.get(name))),
                 inner,
             },
             naga_span(span),

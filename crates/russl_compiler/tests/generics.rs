@@ -184,3 +184,78 @@ fn a_generic_that_calls_itself_is_recursion() {
     ));
     assert!(d.message.contains("calls itself"), "{}", d.message);
 }
+
+const PAIRS: &str = r#"
+struct Pair<T> { a: T, b: T }
+struct Ring<const N: u32> { taps: [f32; N] }
+#[group(0)] #[binding(0)] static RING: Storage<Ring<4>>;
+#[group(0)] #[binding(1)] static OFFSETS: Storage<Pair<Vec4>>;
+
+fn sum<T: Numeric>(p: Pair<T>) -> T { p.a + p.b }
+"#;
+
+#[test]
+fn generic_structs_build_one_instance_per_argument_set() {
+    let a = ok(&format!(
+        "{PAIRS}\n{}",
+        fragment(
+            "    let p = Pair::<f32> { a: 1.0, b: RING.taps[3] };\n    let q = Pair::<Vec4> { a: OFFSETS.a, b: OFFSETS.b };\n    sum(q) * sum(p)"
+        )
+    ));
+    assert!(
+        a.wgsl.contains("struct PairF32") && a.wgsl.contains("struct PairVec4"),
+        "{}",
+        a.wgsl
+    );
+    assert!(
+        a.wgsl.contains("struct Ring4") && a.wgsl.contains("array<f32, 4>"),
+        "{}",
+        a.wgsl
+    );
+    assert!(
+        a.wgsl.contains("fn sum_f32") && a.wgsl.contains("fn sum_vec4"),
+        "{}",
+        a.wgsl
+    );
+}
+
+#[test]
+fn a_generic_struct_type_names_its_arguments() {
+    let d = first_error(&format!(
+        "struct Pair<T> {{ a: T, b: T }}\n#[group(0)] #[binding(0)] static P: Storage<Pair>;\n{}",
+        fragment("    Vec4::ZERO")
+    ));
+    assert!(
+        d.message
+            .contains("`Pair` takes generic arguments: `Pair<f32>`"),
+        "{}",
+        d.message
+    );
+}
+
+#[test]
+fn a_generic_struct_literal_names_its_arguments() {
+    let d = first_error(&format!(
+        "struct Pair<T> {{ a: T, b: T }}\n{}",
+        fragment("    let p = Pair { a: 1.0, b: 2.0 };\n    Vec4::splat(p.a)")
+    ));
+    assert!(
+        d.message.contains("`Pair` is generic: name its arguments"),
+        "{}",
+        d.message
+    );
+}
+
+#[test]
+fn a_generic_struct_checks_its_bounds() {
+    let d = first_error(&format!(
+        "struct Unit<T: Float> {{ v: T }}\n#[group(0)] #[binding(0)] static U: Storage<Unit<u32>>;\n{}",
+        fragment("    Vec4::ZERO")
+    ));
+    assert!(
+        d.message
+            .contains("`Unit` needs `T: Float`, and `T` is `u32` here"),
+        "{}",
+        d.message
+    );
+}

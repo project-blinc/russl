@@ -13,6 +13,7 @@
 //! `__russl_dep_<k>`, so an importer reaches a dependency's dependencies without knowing where
 //! they live.
 
+mod host;
 mod state;
 
 use proc_macro2::TokenStream as Tokens;
@@ -167,7 +168,22 @@ impl Expander<'_> {
                         pub const GLSL: &[(&str, &str)] = &[#(#glsl),*];
                     }
                 };
-                quote! { #(#warnings)* #consts #interface }
+                // A specialisation's structs are its target's, whose twins live with it.
+                let host = if specialized.is_some() {
+                    host::items(
+                        &russl_compiler::Reflection {
+                            structs: Vec::new(),
+                            struct_imports: Vec::new(),
+                            ..a.reflection.clone()
+                        },
+                        false,
+                    )
+                } else {
+                    let bytemuck = syn::parse2::<syn::File>(st.root.clone())
+                        .is_ok_and(|f| f.attrs.iter().any(|a| a.path().is_ident("bytemuck")));
+                    host::items(&a.reflection, bytemuck)
+                };
+                quote! { #(#warnings)* #consts #host #interface }
             }
             Err(d) => errors(&d),
         }

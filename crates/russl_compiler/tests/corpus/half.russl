@@ -1,0 +1,10 @@
+#[group(0)] #[binding(0)] static VALUES: Storage<[HVec4]>;
+
+fn scale<T: Float>(x: T, by: f16) -> T { x * by }
+
+#[fragment]
+#[location(0)]
+fn fs(#[builtin(position)] p: Vec4) -> Vec4 {
+    let h = scale(VALUES[p.x as u32], 0.5);
+    Vec4::new(h.x as f32, h.y as f32, h.z as f32, 1.0)
+}

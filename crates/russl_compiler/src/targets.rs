@@ -19,6 +19,29 @@ pub fn emit(
     // Resolving leaves the overrides declared but unreferenced, and naga's writers refuse a
     // module that declares any. Validating again proves nothing still refers to one.
     let mut module = module.into_owned();
+    let built = module
+        .overrides
+        .iter()
+        .filter_map(|(_, o)| {
+            let value = match module.global_expressions[o.init?] {
+                naga::Expression::Literal(naga::Literal::Bool(b)) => crate::ConstValue::Bool(b),
+                naga::Expression::Literal(naga::Literal::F32(v)) => {
+                    crate::ConstValue::Float(v as f64)
+                }
+                naga::Expression::Literal(naga::Literal::F16(v)) => {
+                    crate::ConstValue::Float(v.to_f64())
+                }
+                naga::Expression::Literal(naga::Literal::I32(v)) => {
+                    crate::ConstValue::Int(v as i64)
+                }
+                naga::Expression::Literal(naga::Literal::U32(v)) => {
+                    crate::ConstValue::Int(v as i64)
+                }
+                _ => return None,
+            };
+            Some((o.name.clone()?, value))
+        })
+        .collect();
     module.overrides = naga::Arena::new();
     let info = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -29,9 +52,13 @@ pub fn emit(
     let (module, info) = (&module, &info);
     let wgsl = naga::back::wgsl::write_string(module, info, naga::back::wgsl::WriterFlags::empty())
         .map_err(|e| fail("WGSL", &e))?;
-    // One version for every device: MSL 2.1 runs on macOS 10.14 and iOS 12 onwards.
+    // One version for every device: MSL 2.1 runs on macOS 10.14 and iOS 12 onwards. Resources
+    // take wgpu's Metal indices (see `native`), never naga's placeholders.
+    let (per_entry_point_map, msl_bindings) = crate::native::msl_map(module);
     let msl_options = naga::back::msl::Options {
         lang_version: (2, 1),
+        per_entry_point_map,
+        fake_missing_bindings: false,
         ..Default::default()
     };
     let (msl, _) = naga::back::msl::write_string(
@@ -77,6 +104,7 @@ pub fn emit(
         )
     });
     let mut glsl_missing = half.then(|| "GLSL ES 3.00 has no f16".to_string());
+    let mut glsl_bindings = Vec::new();
     let entries = if half {
         &[][..]
     } else {
@@ -89,7 +117,7 @@ pub fn emit(
             _ => continue,
         };
         let mut source = String::new();
-        let written = naga::back::glsl::Writer::new(
+        let written: Result<naga::back::glsl::ReflectionInfo, _> = naga::back::glsl::Writer::new(
             &mut source,
             module,
             info,
@@ -103,10 +131,11 @@ pub fn emit(
         )
         .and_then(|mut w| w.write());
         match written {
-            Ok(_) => {}
+            Ok(info) => glsl_bindings.push(crate::native::glsl(module, &entry.name, &info)),
             // WebGL2 cannot run this module at all, which is no fault of its source.
             Err(naga::back::glsl::Error::MissingFeatures(f)) => {
                 glsl.clear();
+                glsl_bindings.clear();
                 glsl_missing = Some(format!("GLSL ES 3.00 has no {f:?}"));
                 break;
             }
@@ -128,5 +157,14 @@ pub fn emit(
         glsl_missing,
         warnings: Vec::new(),
         library: false,
+        reflection: crate::Reflection {
+            constants: built,
+            native: crate::native::NativeBindings {
+                msl: msl_bindings,
+                hlsl: crate::native::hlsl(module),
+                glsl: glsl_bindings,
+            },
+            ..Default::default()
+        },
     })
 }

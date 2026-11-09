@@ -102,6 +102,17 @@ error: `Vec4::new` needs 4 components, found 3
   |             ^^^^
 ```
 
+### The host side
+
+Each module also expands to what the host needs to feed it. A struct gets a Rust twin holding
+the bytes a buffer holds, with WGSL's offsets and padding: `Scene::new(..)`, `Scene::zeroed()`,
+`scene.as_bytes()`, `Scene::SIZE` and `Scene::TINT_OFFSET`, with the layout asserted when the
+crate builds. Vectors are arrays (`Vec3` is `[f32; 3]`, but `[f32; 4]` inside an array, as its
+stride is), and a struct shared by several shaders lives in one library module whose twin they
+all use. `#![bytemuck]` adds `bytemuck::Pod`. Bindings become `SCENE_GROUP`, `SCENE_BINDING` and
+`SCENE_SIZE`, the pipeline constants as built `CONSTANTS` (wgpu's `(name, f64)` list), and a
+vertex entry point's inputs `VS_INPUTS` as (name, location, `wgpu::VertexFormat` variant).
+
 ### Shader files
 
 Shaders can also live in `.russl` files, compiled from `build.rs` by `russl_build` or checked by
@@ -165,8 +176,9 @@ compiles with its root's extension. `russl_build::compile_ext` takes one too.
   (`atlas.sample_level(sampler, uv, 0.0)`, `t.load(coord, 0)`, `t.dimensions()`), `discard!()`,
   swizzles on both sides of `=` (`c.xz = v`), arrays sized by constants (`[f32; TAPS * 2]`) and
   repeated (`[0.0; N]`), `f16` and `HVec*`, Rust operators and casts.
-- **Generics**: `fn lerp<T: Float>(..)` and `fn blur<const N: u32>(w: [f32; N])`, built once per
-  distinct set of arguments. A call infers them, or names them: `zeros::<4>()`. Bounds are
+- **Generics**: `fn lerp<T: Float>(..)`, `fn blur<const N: u32>(w: [f32; N])`, `struct Pair<T>`
+  and `struct Ring<const N: u32>`, built once per distinct set of arguments. A call infers them
+  (through `Pair<T>` too), or names them: `zeros::<4>()`, `Pair::<Vec2> { .. }`. Bounds are
   `Float`, `Int`, `Numeric`, `Scalar` and `Vector`.
 - **WGSL's rules, in Rust's words**: entry-point IO, bindings, and the uniform buffer layout
   (16-byte array strides and struct alignment) are checked before naga sees the module, with
@@ -175,6 +187,10 @@ compiles with its root's extension. `russl_build::compile_ext` takes one too.
   for Vulkan and GLSL ES for WebGL2, all at build time through naga's backends. A platform takes the
   artifact it needs and never compiles a shader at run time. MSL targets version 2.1; a shader
   that needs what WebGL2 lacks, such as storage buffers, has no GLSL.
+- **Native binding models**: MSL binds resources as wgpu's Metal backend does, so wgpu's
+  passthrough shader modules take it as it is; HLSL uses register = binding and space = group;
+  SPIR-V uses set = group. `Artifacts::reflection.native` lists each target's slots, and CI
+  checks every target with its own compiler (spirv-val, DXC, the Metal compiler, glslang).
 - **Modules and reuse**: a module without entry points is a library; `use` imports its `pub`
   functions, types and bindings by path, across files and crates, and only what an entry point
   reaches is emitted. Inspired by the export, import and linking of Heaps' HXSL.

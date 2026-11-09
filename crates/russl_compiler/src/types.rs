@@ -336,6 +336,25 @@ pub fn round_up(align: u32, n: u32) -> u32 {
     n.div_ceil(align) * align
 }
 
+/// A struct's name as an identifier: a generic instance's `Pair<Vec2>` is `PairVec2`, and
+/// `Ring<4>` `Ring4`. Other names are unchanged.
+pub fn ident_name(name: &str) -> String {
+    if name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return name.to_string();
+    }
+    let mut out = String::new();
+    let mut upper = false;
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(if upper { c.to_ascii_uppercase() } else { c });
+            upper = false;
+        } else {
+            upper = true;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

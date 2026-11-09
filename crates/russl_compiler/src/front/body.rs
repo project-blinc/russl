@@ -528,7 +528,9 @@ impl Builder<'_, '_> {
                 Some(Item::Const(c)) => self.push(ExprKind::Const(c), error, span),
                 Some(Item::Global(g)) => self.push(ExprKind::Global(g), error, span),
                 Some(Item::Fn(_)) => self.error(span, format!("`{ident}` is a function: call it")),
-                Some(Item::Struct(_)) => self.error(span, format!("`{ident}` is a type")),
+                Some(Item::Struct(_) | Item::StructTemplate(_)) => {
+                    self.error(span, format!("`{ident}` is a type"))
+                }
                 None => self.error(span, format!("cannot find `{ident}` in this scope")),
             };
         }
@@ -589,38 +591,6 @@ impl Builder<'_, '_> {
         )
     }
 
-    /// One argument of a turbofish: a type, or a const parameter's value. A bare name is a
-    /// constant when one by that name is in scope, as Rust reads it.
-    fn generic_arg(&mut self, a: &syn::GenericArgument) -> Option<GenericArg> {
-        let value = |this: &mut Self, e: &syn::Expr| match this.f.const_value(e) {
-            Ok(v) => Some(GenericArg::Const(v)),
-            Err((span, message)) => {
-                this.f.sink.error(span, message);
-                None
-            }
-        };
-        match a {
-            syn::GenericArgument::Type(syn::Type::Path(p))
-                if p.path.get_ident().is_some_and(|i| self.f.is_constant(i)) =>
-            {
-                let e = syn::Expr::Path(syn::ExprPath {
-                    attrs: Vec::new(),
-                    qself: None,
-                    path: p.path.clone(),
-                });
-                value(self, &e)
-            }
-            syn::GenericArgument::Type(t) => Some(GenericArg::Type(self.f.ty(t))),
-            syn::GenericArgument::Const(e) => value(self, e),
-            other => {
-                self.f
-                    .sink
-                    .error(other.span(), "a generic argument is a type or a constant");
-                None
-            }
-        }
-    }
-
     fn scalar_lit(&mut self, s: Scalar, v: f64, span: proc_macro2::Span) -> ExprId {
         let ty = self.f.types.scalar(s);
         let lit = if s.is_float() {
@@ -651,7 +621,11 @@ impl Builder<'_, '_> {
                     format!("cannot find function `{}`", seg.ident),
                 );
             };
-            let generics = g.args.iter().filter_map(|a| self.generic_arg(a)).collect();
+            let generics = g
+                .args
+                .iter()
+                .filter_map(|a| self.f.generic_arg(a))
+                .collect();
             return self.push(ExprKind::GenericCall(id, generics, args), error, span);
         }
         if let Some(ident) = p.path.get_ident() {
@@ -751,12 +725,32 @@ impl Builder<'_, '_> {
                 "`..` in a struct literal has no shader equivalent",
             );
         }
-        let Some(ident) = s.path.get_ident() else {
+        let [seg] = s.path.segments.iter().collect::<Vec<_>>()[..] else {
             return self.error(s.path.span(), "expected a struct name");
         };
+        let ident = &seg.ident;
         let sym = self.f.names.intern(&ident.to_string());
-        let Some(Item::Struct(id)) = self.f.scope().get(&sym).copied() else {
-            return self.error(ident.span(), format!("`{ident}` is not a struct"));
+        let id = match (self.f.scope().get(&sym).copied(), &seg.arguments) {
+            (Some(Item::Struct(id)), syn::PathArguments::None) => id,
+            (Some(Item::StructTemplate(k)), syn::PathArguments::AngleBracketed(g)) => {
+                let args = g
+                    .args
+                    .iter()
+                    .filter_map(|a| self.f.generic_arg(a))
+                    .collect();
+                let ty = self.f.struct_instance(k, args, seg.span());
+                match self.f.types.get(ty) {
+                    Type::Struct(id) => id,
+                    _ => return self.push(ExprKind::Error, ty, span),
+                }
+            }
+            (Some(Item::StructTemplate(_)), _) => {
+                return self.error(
+                    ident.span(),
+                    format!("`{ident}` is generic: name its arguments, `{ident}::<f32> {{ .. }}`"),
+                );
+            }
+            _ => return self.error(ident.span(), format!("`{ident}` is not a struct")),
         };
         let order: Vec<Symbol> = self.f.types.structs[id.0 as usize]
             .fields

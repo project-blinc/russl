@@ -174,3 +174,17 @@ fn fs() -> Vec4 {
     assert!(a.msl.contains("half"), "{}", a.msl);
     assert!(a.glsl.is_empty() && a.glsl_missing.is_some_and(|m| m.contains("f16")));
 }
+
+#[test]
+fn an_array_of_unsuffixed_literals_takes_its_context() {
+    ok(r#"
+const IDS: [u32; 3] = [1, 2, 3];
+fn sum(w: [u32; 3]) -> u32 { w[0] + w[1] + w[2] }
+
+#[fragment]
+#[location(0)]
+fn fs() -> Vec4 {
+    Vec4::splat((sum([4, 5, 6]) + IDS[0]) as f32)
+}
+"#);
+}

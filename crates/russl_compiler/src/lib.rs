@@ -16,6 +16,8 @@ mod front;
 mod hir;
 mod intern;
 mod lower;
+mod native;
+mod reflect;
 #[cfg(feature = "ariadne")]
 mod render;
 mod targets;
@@ -27,6 +29,14 @@ pub use extension::{
     ProgramView,
 };
 pub use files::{Program, SourceFile};
+pub use native::{
+    GlslBindings, GlslTexture, HlslBinding, HlslSlot, MslEntry, MslResource, MslSlot,
+    NativeBindings,
+};
+pub use reflect::{
+    BindingLayout, FieldLayout, HostScalar, HostType, Reflection, StructImport, StructLayout,
+    VertexInput, VertexInputs,
+};
 #[cfg(feature = "ariadne")]
 pub use render::{render, render_program};
 
@@ -35,6 +45,7 @@ use proc_macro2::{Span, TokenStream};
 /// What a compiled shader module produces: one artifact per target, so no platform compiles
 /// shaders at run time, and the warnings found on the way.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Artifacts {
     /// WGSL, for WebGPU (browsers accept nothing else) and wgpu.
     pub wgsl: String,
@@ -52,6 +63,9 @@ pub struct Artifacts {
     /// The module has no entry points: a library for other modules to import. It was checked,
     /// and no target was written.
     pub library: bool,
+    /// What the host needs to know: struct layouts, bindings, the pipeline constants as built,
+    /// vertex inputs.
+    pub reflection: Reflection,
 }
 
 /// One module of a program: its source, and for each module path its `use` items name, the
@@ -219,6 +233,7 @@ pub fn compile_program_ext(
             glsl_missing: None,
             warnings: sink.items,
             library: true,
+            reflection: reflect::program(&module, &analysis.emitted, &types, &names),
         });
     }
     let naga_module = lower::module(
@@ -258,6 +273,11 @@ pub fn compile_program_ext(
         all
     })?;
     artifacts.warnings = sink.items;
+    let built = std::mem::take(&mut artifacts.reflection.constants);
+    let native = std::mem::take(&mut artifacts.reflection.native);
+    artifacts.reflection = reflect::program(&module, &analysis.emitted, &types, &names);
+    artifacts.reflection.constants = built;
+    artifacts.reflection.native = native;
     Ok(artifacts)
 }
 

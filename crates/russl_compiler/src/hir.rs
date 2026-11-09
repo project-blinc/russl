@@ -31,6 +31,9 @@ pub struct Module {
     pub functions: Vec<Function>,
     /// The extension's builtins: parameter types and result type, by index.
     pub ext_builtins: Vec<(Vec<TypeId>, TypeId)>,
+    /// The structs the module being compiled imports: the `use` path's module, the struct's
+    /// name there, the name it takes here, and whether the `use` is `pub`.
+    pub struct_imports: Vec<(String, String, String, bool)>,
 }
 
 pub struct Struct {

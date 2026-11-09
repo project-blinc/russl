@@ -19,6 +19,8 @@ use syn::spanned::Spanned;
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     Struct(StructId),
+    /// A generic struct, by its index among the struct templates.
+    StructTemplate(u32),
     Const(ConstId),
     Global(GlobalId),
     Fn(FnId),
@@ -51,6 +53,10 @@ pub struct Front<'a> {
     generic_consts: HashMap<String, (i128, TypeId)>,
     /// The extension's builtins by name, in `hir::Module::ext_builtins` order.
     ext_names: Vec<String>,
+    /// The root module's struct imports, as `hir::Module::struct_imports` holds them.
+    struct_imports: Vec<(String, String, String, bool)>,
+    /// Generic structs and the instances built of them.
+    structs: generics::Structs,
 }
 
 /// Build the resolved IR of a program. `sources[0]` is the module being compiled; the rest are
@@ -76,6 +82,8 @@ pub fn program(
         generic_types: HashMap::new(),
         generic_consts: HashMap::new(),
         ext_names: builtins.iter().map(|b| b.name.clone()).collect(),
+        struct_imports: Vec::new(),
+        structs: generics::Structs::default(),
     };
     let mut m = hir::Module::default();
     let mut templates = Vec::new();
@@ -90,6 +98,17 @@ pub fn program(
             };
             let is_pub = |v: &syn::Visibility| matches!(v, syn::Visibility::Public(_));
             let decl = match item {
+                syn::Item::Struct(s) if !s.generics.params.is_empty() => {
+                    let k = f.structs.templates.len() as u32;
+                    f.current = mi;
+                    let params = f.params(&s.generics);
+                    f.structs.templates.push(generics::StructTemplate {
+                        item: s.clone(),
+                        module: mi,
+                        params,
+                    });
+                    named(&s.ident, is_pub(&s.vis), Item::StructTemplate(k))
+                }
                 syn::Item::Struct(s) => {
                     let id = StructId(f.types.structs.len() as u32);
                     let name = f.names.intern(&s.ident.to_string());
@@ -162,7 +181,9 @@ pub fn program(
     for (mi, src) in sources.iter().enumerate() {
         f.current = mi;
         for item in &src.file.items {
-            if let syn::Item::Struct(s) = item {
+            if let syn::Item::Struct(s) = item
+                && s.generics.params.is_empty()
+            {
                 let st = f.structure(s);
                 m.structs.push(st);
             }
@@ -240,6 +261,8 @@ pub fn program(
             }
         }
     }
+    m.struct_imports = std::mem::take(&mut f.struct_imports);
+    m.structs.append(&mut f.structs.built);
     (m, f.into_generics(templates))
 }
 
@@ -389,6 +412,21 @@ impl Front<'_> {
                             .as_ref()
                             .map(|a| self.names.intern(&a.to_string()))
                             .unwrap_or(sym);
+                        // The prelude's structs are the framework's; it gives the host its own.
+                        if mi == 0
+                            && matches!(item, Item::Struct(_))
+                            && leaf.module != crate::extension::PRELUDE
+                        {
+                            let entry = (
+                                leaf.module.clone(),
+                                self.names.get(sym).to_string(),
+                                self.names.get(alias).to_string(),
+                                leaf.public,
+                            );
+                            if !self.struct_imports.contains(&entry) {
+                                self.struct_imports.push(entry);
+                            }
+                        }
                         match self.scopes[mi].get(&alias) {
                             Some(existing) if *existing != item && leaf.name.is_some() => {
                                 let n = self.names.get(alias).to_string();
@@ -439,10 +477,11 @@ impl Front<'_> {
         let Some(Item::Struct(id)) = self.scope().get(&name).copied() else {
             unreachable!("declared above");
         };
-        if !s.generics.params.is_empty() {
-            self.sink
-                .error(s.generics.span(), "generic structs are not supported yet");
-        }
+        self.struct_fields(s, id, name)
+    }
+
+    /// A struct's members, resolved in the module being built; `id` takes them.
+    fn struct_fields(&mut self, s: &syn::ItemStruct, id: StructId, name: Symbol) -> hir::Struct {
         let mut fields = Vec::new();
         for field in &s.fields {
             let Some(ident) = &field.ident else {
