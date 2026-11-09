@@ -67,6 +67,22 @@ pub enum Stage {
     Compute,
 }
 
+/// A value given for one of the root module's pipeline constants.
+#[derive(Clone, Debug)]
+pub struct Constant {
+    pub name: String,
+    pub value: ConstValue,
+    /// Where the value was written, for errors.
+    pub span: Span,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ConstValue {
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+}
+
 /// Compile one module of russl source that imports nothing.
 pub fn compile(source: TokenStream) -> Result<Artifacts, Vec<Diagnostic>> {
     compile_program(&[Module {
@@ -86,6 +102,15 @@ pub fn use_paths(source: TokenStream) -> Result<Vec<(String, TokenStream)>, Diag
 /// Compile a program: `modules[0]` is the module being compiled, the others what it imports.
 /// On failure, every error and warning found.
 pub fn compile_program(modules: &[Module]) -> Result<Artifacts, Vec<Diagnostic>> {
+    compile_program_with(modules, &[])
+}
+
+/// Compile a program with values for some of its root's pipeline constants: the artifacts are
+/// the root as those values specialise it. The rest keep their defaults.
+pub fn compile_program_with(
+    modules: &[Module],
+    constants: &[Constant],
+) -> Result<Artifacts, Vec<Diagnostic>> {
     let mut files = Vec::with_capacity(modules.len());
     for m in modules {
         files.push(
@@ -114,11 +139,19 @@ pub fn compile_program(modules: &[Module]) -> Result<Artifacts, Vec<Diagnostic>>
     if sink.has_errors() {
         return Err(sink.items);
     }
+    let values = specialize(&module, &names, &types, constants, &mut sink);
+    if sink.has_errors() {
+        return Err(sink.items);
+    }
     if !module
         .functions
         .iter()
         .any(|f| f.module == 0 && f.stage.is_some())
     {
+        if let Some(c) = constants.first() {
+            sink.error(c.span, "only a module with entry points can be specialised");
+            return Err(sink.items);
+        }
         return Ok(Artifacts {
             wgsl: String::new(),
             msl: String::new(),
@@ -158,11 +191,75 @@ pub fn compile_program(modules: &[Module]) -> Result<Artifacts, Vec<Diagnostic>>
         ));
         all
     })?;
-    let mut artifacts = targets::emit(&naga_module, &info).map_err(|m| {
+    let mut artifacts = targets::emit(&naga_module, &info, &values).map_err(|m| {
         let mut all = sink.items.clone();
         all.push(Diagnostic::error(Span::call_site(), m));
         all
     })?;
     artifacts.warnings = sink.items;
     Ok(artifacts)
+}
+
+/// Check each given value against the root's pipeline constants, and key it the way naga looks
+/// it up: by the constant's id if it has one, else by name.
+fn specialize(
+    module: &hir::Module,
+    names: &intern::Interner,
+    types: &types::Types,
+    constants: &[Constant],
+    sink: &mut diag::Sink,
+) -> naga::back::PipelineConstants {
+    use types::{Scalar, Type};
+    let mut out = naga::back::PipelineConstants::default();
+    for c in constants {
+        let found = module
+            .consts
+            .iter()
+            .find(|k| k.module == 0 && names.get(k.name) == c.name);
+        let Some(k) = found else {
+            sink.error(
+                c.span,
+                format!("the specialised module has no constant `{}`", c.name),
+            );
+            continue;
+        };
+        let Some(id) = k.pipeline else {
+            sink.error(
+                c.span,
+                format!(
+                    "`{}` is not a `#[pipeline]` constant, so it cannot be specialised",
+                    c.name
+                ),
+            );
+            continue;
+        };
+        let value = match (types.get(k.ty), c.value) {
+            (Type::Scalar(Scalar::Bool), ConstValue::Bool(b)) => Some(if b { 1.0 } else { 0.0 }),
+            (Type::Scalar(Scalar::I32), ConstValue::Int(v)) if i32::try_from(v).is_ok() => {
+                Some(v as f64)
+            }
+            (Type::Scalar(Scalar::U32), ConstValue::Int(v)) if u32::try_from(v).is_ok() => {
+                Some(v as f64)
+            }
+            (Type::Scalar(Scalar::F32 | Scalar::F16), ConstValue::Int(v)) => Some(v as f64),
+            (Type::Scalar(Scalar::F32 | Scalar::F16), ConstValue::Float(v)) => Some(v),
+            _ => None,
+        };
+        match value {
+            Some(v) => {
+                let key = id.map(|n| n.to_string()).unwrap_or_else(|| c.name.clone());
+                if out.insert(key, v).is_some() {
+                    sink.error(c.span, format!("`{}` is given twice", c.name));
+                }
+            }
+            None => {
+                let want = types.name(k.ty, names);
+                sink.error(
+                    c.span,
+                    format!("`{}` is `{want}`; this value does not fit", c.name),
+                );
+            }
+        }
+    }
+    out
 }

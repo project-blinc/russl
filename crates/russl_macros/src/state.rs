@@ -123,21 +123,11 @@ impl State {
         format!("{h:016x}")
     }
 
-    fn index_of(&self, id: &str) -> Option<usize> {
-        self.loaded.iter().position(|l| l.id == id).map(|i| i + 1)
-    }
-
-    pub fn root_imports_by_index(&self) -> Vec<(String, usize)> {
-        self.root_imports
+    /// A module's imports as indices into `order`, the program's modules by id.
+    pub fn imports_in(&self, imports: &[(String, String)], order: &[&str]) -> Vec<(String, usize)> {
+        imports
             .iter()
-            .filter_map(|(k, id)| Some((k.clone(), self.index_of(id)?)))
-            .collect()
-    }
-
-    pub fn imports_by_index(&self, m: &Loaded) -> Vec<(String, usize)> {
-        m.imports
-            .iter()
-            .filter_map(|(k, id)| Some((k.clone(), self.index_of(id)?)))
+            .filter_map(|(k, id)| Some((k.clone(), order.iter().position(|o| o == id)?)))
             .collect()
     }
 }

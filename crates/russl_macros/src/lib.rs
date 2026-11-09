@@ -23,18 +23,25 @@ use state::{Pending, State};
 #[proc_macro]
 pub fn russl(input: TokenStream) -> TokenStream {
     let root: Tokens = input.into();
-    let paths = match russl_compiler::use_paths(root.clone()) {
-        Ok(p) => p,
-        Err(d) => return errors(&[d]).into(),
-    };
-    let pending = paths
-        .into_iter()
-        .map(|(key, path)| Pending {
-            path: quote! { #path::__russl_source },
-            root_key: Some(key),
+    let pending = match specialization(&root) {
+        Err(d) => return errors(&d).into(),
+        Ok(Some((target, _))) => vec![Pending {
+            path: quote! { #target::__russl_source },
+            root_key: Some(SPECIALIZE.into()),
             dep: None,
-        })
-        .collect();
+        }],
+        Ok(None) => match russl_compiler::use_paths(root.clone()) {
+            Ok(paths) => paths
+                .into_iter()
+                .map(|(key, path)| Pending {
+                    path: quote! { #path::__russl_source },
+                    root_key: Some(key),
+                    dep: None,
+                })
+                .collect(),
+            Err(d) => return errors(&[d]).into(),
+        },
+    };
     step(State {
         root,
         loaded: Vec::new(),
@@ -69,17 +76,52 @@ fn step(st: State) -> Tokens {
 }
 
 fn compile(st: &State) -> Tokens {
-    let mut modules = vec![russl_compiler::Module {
-        source: st.root.clone(),
-        imports: st.root_imports_by_index(),
-    }];
-    for m in &st.loaded {
-        modules.push(russl_compiler::Module {
-            source: m.source.clone(),
-            imports: st.imports_by_index(m),
-        });
+    let specialized = match specialization(&st.root) {
+        Ok(s) => s,
+        Err(d) => return errors(&d),
+    };
+    // The program's modules by id; "" stands for the root itself.
+    let mut order: Vec<&str> = Vec::new();
+    let mut constants = Vec::new();
+    match &specialized {
+        // A specialisation compiles the module it names, as the program's root.
+        Some((_, values)) => {
+            let Some(target) = st
+                .root_imports
+                .iter()
+                .find(|(k, _)| k == SPECIALIZE)
+                .map(|(_, id)| id.as_str())
+            else {
+                return quote! { ::core::compile_error!("russl: the specialised module was not delivered"); };
+            };
+            order.push(target);
+            order.extend(
+                st.loaded
+                    .iter()
+                    .map(|m| m.id.as_str())
+                    .filter(|id| *id != target),
+            );
+            constants = values.clone();
+        }
+        None => {
+            order.push("");
+            order.extend(st.loaded.iter().map(|m| m.id.as_str()));
+        }
     }
-    match russl_compiler::compile_program(&modules) {
+    let modules: Vec<russl_compiler::Module> = order
+        .iter()
+        .map(|id| match st.loaded.iter().find(|m| m.id == *id) {
+            Some(m) => russl_compiler::Module {
+                source: m.source.clone(),
+                imports: st.imports_in(&m.imports, &order),
+            },
+            None => russl_compiler::Module {
+                source: st.root.clone(),
+                imports: st.imports_in(&st.root_imports, &order),
+            },
+        })
+        .collect();
+    match russl_compiler::compile_program_with(&modules, &constants) {
         Ok(a) => {
             let warnings = a.warnings.iter().map(warning);
             let interface = interface(st);
@@ -132,6 +174,78 @@ fn interface(st: &State) -> Tokens {
         #[doc(hidden)]
         pub use #source_macro as __russl_source;
         #(#aliases)*
+    }
+}
+
+/// The key under which a specialisation's target sits among the root's imports.
+const SPECIALIZE: &str = "#specialize";
+
+/// A module of the form `#![specialize(path)]` followed by `const NAME: T = value;` items: the
+/// module it specialises, and the values it gives.
+fn specialization(
+    root: &Tokens,
+) -> Result<Option<(syn::Path, Vec<russl_compiler::Constant>)>, Vec<Diagnostic>> {
+    let file: syn::File =
+        syn::parse2(root.clone()).map_err(|e| vec![Diagnostic::error(e.span(), e.to_string())])?;
+    let Some(attr) = file.attrs.iter().find(|a| a.path().is_ident("specialize")) else {
+        return Ok(None);
+    };
+    let target: syn::Path = attr.parse_args().map_err(|e| {
+        vec![Diagnostic::error(
+            e.span(),
+            "expected `#![specialize(path::to::module)]`",
+        )]
+    })?;
+    let mut constants = Vec::new();
+    let mut bad = Vec::new();
+    for item in &file.items {
+        let syn::Item::Const(c) = item else {
+            use syn::spanned::Spanned;
+            bad.push(Diagnostic::error(
+                item.span(),
+                "a specialisation holds only `const NAME: T = value;` items",
+            ));
+            continue;
+        };
+        match literal(&c.expr) {
+            Some(value) => constants.push(russl_compiler::Constant {
+                name: c.ident.to_string(),
+                value,
+                span: c.ident.span(),
+            }),
+            None => {
+                use syn::spanned::Spanned;
+                bad.push(Diagnostic::error(
+                    c.expr.span(),
+                    "a specialised value is a literal",
+                ));
+            }
+        }
+    }
+    if bad.is_empty() {
+        Ok(Some((target, constants)))
+    } else {
+        Err(bad)
+    }
+}
+
+/// A bool, integer or float literal, possibly negated.
+fn literal(e: &syn::Expr) -> Option<russl_compiler::ConstValue> {
+    use russl_compiler::ConstValue as V;
+    match e {
+        syn::Expr::Lit(l) => match &l.lit {
+            syn::Lit::Bool(b) => Some(V::Bool(b.value)),
+            syn::Lit::Int(i) => i.base10_parse().ok().map(V::Int),
+            syn::Lit::Float(f) => f.base10_parse().ok().map(V::Float),
+            _ => None,
+        },
+        syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Neg(_)) => match literal(&u.expr)? {
+            V::Int(i) => Some(V::Int(-i)),
+            V::Float(f) => Some(V::Float(-f)),
+            V::Bool(_) => None,
+        },
+        syn::Expr::Paren(p) => literal(&p.expr),
+        _ => None,
     }
 }
 

@@ -5,17 +5,17 @@ use crate::{Artifacts, GlslEntry, Stage};
 /// Write `module` as WGSL, MSL, HLSL, SPIR-V and GLSL ES. An error names the target that
 /// failed.
 ///
-/// naga's writers take no pipeline constants, so each one is fixed at its default first: the
-/// artifacts are the module as those defaults specialise it.
-pub fn emit(module: &naga::Module, info: &naga::valid::ModuleInfo) -> Result<Artifacts, String> {
+/// naga's writers take no pipeline constants, so each is fixed first: at the value in
+/// `constants`, else at its default.
+pub fn emit(
+    module: &naga::Module,
+    info: &naga::valid::ModuleInfo,
+    constants: &naga::back::PipelineConstants,
+) -> Result<Artifacts, String> {
     let fail = |target: &str, e: &dyn std::fmt::Display| format!("{target} output: {e}");
-    let (module, _) = naga::back::pipeline_constants::process_overrides(
-        module,
-        info,
-        None,
-        &naga::back::PipelineConstants::default(),
-    )
-    .map_err(|e| format!("pipeline constants: {e}"))?;
+    let (module, _) =
+        naga::back::pipeline_constants::process_overrides(module, info, None, constants)
+            .map_err(|e| format!("pipeline constants: {e}"))?;
     // Resolving leaves the overrides declared but unreferenced, and naga's writers refuse a
     // module that declares any. Validating again proves nothing still refers to one.
     let mut module = module.into_owned();

@@ -18,6 +18,10 @@ Modules import each other with `use`, within a crate and across crates: a module
 points is a library, `pub` items are its interface, and a shader carries only what its entry
 points reach.
 
+A `#[pipeline]` constant is specialised at build time, never at run time: a module holding
+`#![specialize(path::to::shader)]` and `const NAME: T = value;` items expands to that shader's
+artifacts with those values.
+
 ## Design
 
 - **Rust syntax**: `fn`, `struct`, `const`, `let`, `if`/`else`, `match`, `for` over ranges,
