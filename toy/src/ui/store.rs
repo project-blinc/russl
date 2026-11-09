@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// What the last good compile produced, per target.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub(crate) struct Outputs {
     pub wgsl: String,
     pub msl: String,
@@ -159,10 +159,10 @@ impl EditorStore {
             *g += 1;
             *g
         };
-        let problems = match sketch::compile(&sources, &chosen, generation) {
+        let problems = match sketch::compile(&sources, &chosen) {
             Ok((compiled, warnings)) => {
                 self.publish(&compiled.artifacts);
-                self.shader.set(compiled.shader);
+                set_if_changed(self.shader, compiled.shader, |a, b| a.name == b.name);
                 let ms = began.elapsed().as_secs_f32() * 1000.0;
                 self.build.set(format!("compiled in {ms:.1} ms"));
                 self.log(format!(
@@ -186,7 +186,7 @@ impl EditorStore {
         for (i, editor) in editors.iter().enumerate() {
             set_code_diagnostics(editor, Self::inline(&problems, i));
         }
-        self.problems.set(problems);
+        set_if_changed(self.problems, problems, |a, b| a == b);
     }
 
     /// Module `module`'s problems, as its editor marks them.
@@ -229,31 +229,34 @@ impl EditorStore {
                 .collect::<Vec<_>>()
                 .join("\n"),
         };
-        self.outputs.set(Outputs {
+        let outputs = Outputs {
             wgsl: a.wgsl.clone(),
             msl: a.msl.clone(),
             hlsl: a.hlsl.clone(),
             glsl,
+        };
+        set_if_changed(self.outputs, outputs, |a, b| a == b);
+        set_if_changed(self.constants, a.reflection.constants.clone(), |a, b| {
+            a == b
         });
-        self.constants.set(a.reflection.constants.clone());
-        self.bindings.set(
-            a.reflection
-                .bindings
-                .iter()
-                .map(|b| {
-                    let kind = match b.kind {
-                        BindingKind::Uniform => "uniform",
-                        BindingKind::Storage { .. } => "storage",
-                        BindingKind::Handle => "texture",
-                    };
-                    let size = b.size.map(|s| format!(" · {s} B")).unwrap_or_default();
-                    (
-                        b.name.clone(),
-                        format!("{}:{} · {kind}{size}", b.group, b.binding),
-                    )
-                })
-                .collect(),
-        );
+        let bindings = a
+            .reflection
+            .bindings
+            .iter()
+            .map(|b| {
+                let kind = match b.kind {
+                    BindingKind::Uniform => "uniform",
+                    BindingKind::Storage { .. } => "storage",
+                    BindingKind::Handle => "texture",
+                };
+                let size = b.size.map(|s| format!(" · {s} B")).unwrap_or_default();
+                (
+                    b.name.clone(),
+                    format!("{}:{} · {kind}{size}", b.group, b.binding),
+                )
+            })
+            .collect();
+        set_if_changed(self.bindings, bindings, |a, b| a == b);
     }
 
     /// A pipeline constant's new value, then a recompile.
@@ -266,5 +269,17 @@ impl EditorStore {
         };
         self.log(format!("{name} = {shown}"));
         self.recompile();
+    }
+}
+
+/// Set `signal` to `value` unless `same` says it holds that already, so what binds it does not
+/// redo its work for an edit that changed nothing it shows.
+fn set_if_changed<T: Clone + Send + 'static>(
+    signal: Signal<T>,
+    value: T,
+    same: impl Fn(&T, &T) -> bool,
+) {
+    if !signal.try_get().is_some_and(|now| same(&now, &value)) {
+        signal.set(value);
     }
 }

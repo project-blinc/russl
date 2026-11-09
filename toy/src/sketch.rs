@@ -145,11 +145,10 @@ pub struct Source {
 pub const ROOT: &str = "main";
 
 /// Compile `sources`, `sources[0]` the root, with values for some of the root's pipeline
-/// constants. `generation` names the shader, as Blinc caches pipelines by name.
+/// constants. The shader is named by its WGSL, as Blinc caches pipelines by name.
 pub fn compile(
     sources: &[Source],
     constants: &[Constant],
-    generation: u64,
 ) -> Result<(Compiled, Vec<Problem>), Vec<Problem>> {
     let lines: Vec<usize> = sources
         .iter()
@@ -217,7 +216,8 @@ pub fn compile(
                 .filter(|p| p.line.is_some())
                 .collect();
             let shader = Arc::new(FlowShader {
-                name: Cow::Owned(format!("russl_toy_{generation}")),
+                // Named by its code: an edit that leaves the WGSL as it was keeps the pipeline.
+                name: Cow::Owned(format!("russl_toy_{:016x}", wgsl_hash(&artifacts.wgsl))),
                 target: FlowTarget::Fragment,
                 wgsl: Cow::Owned(artifacts.wgsl.clone()),
                 needs_scene: false,
@@ -234,4 +234,12 @@ pub fn compile(
             Err(problems)
         }
     }
+}
+
+/// A hash of a shader's WGSL, which names it.
+fn wgsl_hash(wgsl: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    wgsl.hash(&mut h);
+    h.finish()
 }
