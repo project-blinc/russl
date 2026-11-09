@@ -1,0 +1,13 @@
+[package]
+name = "russl_fixture_blinc_sdf"
+description = "Blinc's SDF core shader in russl, and its simple pipeline as a specialisation"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+russl.workspace = true
+
+[dev-dependencies]
+naga.workspace = true

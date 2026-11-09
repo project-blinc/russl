@@ -234,6 +234,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "russl_fixture_blinc_sdf"
+version = "0.0.0"
+dependencies = [
+ "naga",
+ "russl",
+]
+
+[[package]]
 name = "russl_fixture_consumer"
 version = "0.0.0"
 dependencies = [
