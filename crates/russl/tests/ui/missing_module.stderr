@@ -1,0 +1,5 @@
+error[E0433]: cannot find `russl_module` in `plain`
+ --> tests/ui/missing_module.rs:7:20
+  |
+7 |         use super::plain::sd_circle;
+  |                    ^^^^^ could not find `russl_module` in `plain`

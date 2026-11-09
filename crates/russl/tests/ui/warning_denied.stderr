@@ -1,0 +1,11 @@
+error: use of deprecated constant `shader::_::russl_warning`: russl: unused variable: `unused`; if this is intentional, prefix it with an underscore: `_unused`
+ --> tests/ui/warning_denied.rs:8:17
+  |
+8 |             let unused = 1.0;
+  |                 ^^^^^^
+  |
+note: the lint level is defined here
+ --> tests/ui/warning_denied.rs:1:9
+  |
+1 | #![deny(deprecated)]
+  |         ^^^^^^^^^^

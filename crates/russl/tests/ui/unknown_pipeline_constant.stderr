@@ -1,0 +1,5 @@
+error: the specialised module has no constant `FEAT_FAED`
+  --> tests/ui/unknown_pipeline_constant.rs:16:15
+   |
+16 |         const FEAT_FAED: bool = false;
+   |               ^^^^^^^^^

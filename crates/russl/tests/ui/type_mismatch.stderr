@@ -1,0 +1,5 @@
+error: `Vec4::new` needs 4 components, found 3
+ --> tests/ui/type_mismatch.rs:7:13
+  |
+7 |             Vec4::new(local, d)
+  |             ^^^^
