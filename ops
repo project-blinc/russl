@@ -1,1 +1,1 @@
-{"author":{"id":"85a3c31a64931f83958f26b24045fef8415ea6ff04d942d15661891c77fc0695"},"ops":[{"type":5,"timestamp":1794184804,"nonce":"AUtKJfS1aPV7c1ZaSkMIK47GSb0=","added":["debt"],"removed":null}]}
+{"author":{"id":"85a3c31a64931f83958f26b24045fef8415ea6ff04d942d15661891c77fc0695"},"ops":[{"type":5,"timestamp":1794184805,"nonce":"utkU3DtIPt/BpFqOOiwBqkk6lPo=","added":["area:compiler","area:macros"],"removed":null}]}
