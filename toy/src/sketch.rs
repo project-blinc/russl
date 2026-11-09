@@ -109,7 +109,7 @@ pub struct Compiled {
 }
 
 /// One problem in the sketch.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Problem {
     /// The module it is in, by its index among the sketch's modules.
     pub module: usize,

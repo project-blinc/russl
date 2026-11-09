@@ -17,5 +17,12 @@ fn main() -> Result<()> {
         ..Default::default()
     };
     blinc_app::register_font(russl_toy::ui::CODE_FONT.to_vec());
-    WindowedApp::run(config, russl_toy::ui::build_ui)
+    // A closure, not the fn: the runner's bound is higher-ranked over the context's lifetime.
+    #[allow(clippy::redundant_closure)]
+    WindowedApp::run_with_theme(
+        config,
+        russl_toy::ui::theme_bundle(),
+        blinc_theme::ColorScheme::Dark,
+        |ctx| russl_toy::ui::build_ui(ctx),
+    )
 }

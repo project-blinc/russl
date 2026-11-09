@@ -1,43 +1,47 @@
 //! The editor: one tab per module of the sketch, and a button that adds one. `main` holds the
-//! entry point; another module is imported from it by name, `use crate::<name>::f;`.
+//! entry point; another module is imported from it by name, `use crate::<name>::f;`. Each
+//! editor fills its tab, which fills the panel.
 
-use super::{HEADER_H, ModuleTab, Toy, bordered, editor_height, icon_button, log, recompile, toy};
+use super::{HEADER_H, ModuleTab, bordered, icon_button, store};
 use crate::highlight::ShaderHighlighter;
 use blinc_app::prelude::*;
 use blinc_cn::prelude::*;
+use blinc_core::reactive::computed;
 
-/// The editor panel: its tabs, rebuilt when a module is added, with the add button at the
-/// header's end.
-pub(super) fn editor(t: &'static Toy) -> impl ElementBuilder {
+/// The editor panel: its tabs, made again only when the set of modules changes, with the add
+/// button at the header's end.
+pub(super) fn editor() -> impl ElementBuilder {
     bordered()
         .relative()
-        .child(
-            stateful_with_key::<NoState>("toy-editor-tabs")
-                .deps([
-                    t.modules_rev.id(),
-                    t.window_h.id(),
-                    t.bottom_h.id(),
-                    t.panel_open.id(),
-                ])
-                .on_state(move |_| {
-                    let h = editor_height(t);
-                    let mut tabs = cn::tabs(t.active);
-                    for m in t.modules.lock().unwrap().iter() {
-                        let state = m.editor.clone();
-                        tabs = tabs.tab(m.name.clone(), format!("{}.russl", m.name), move || {
-                            div().w_full().h(h).child(
-                                code_editor(&state)
-                                    .w_full()
-                                    .h(h)
-                                    .font_size(14.0)
-                                    .line_numbers(true)
-                                    .syntax(SyntaxConfig::new(ShaderHighlighter::russl()))
-                                    .on_change(|_| recompile(toy())),
-                            )
-                        });
-                    }
-                    div().w_full().h_full().child(tabs)
-                }),
+        .for_each(
+            // One tabs element for the whole set: made again when a module comes or goes.
+            computed(move |g| vec![g.get(store().names).unwrap_or_default()]),
+            |names: &Vec<String>| names.join("/"),
+            move |names: Vec<String>| {
+                let mut tabs = cn::tabs(store().active);
+                for name in names {
+                    let state = store()
+                        .modules
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .find(|m| m.name == name)
+                        .map(|m| m.editor.clone());
+                    let Some(state) = state else { continue };
+                    tabs = tabs.tab(name.clone(), format!("{name}.russl"), move || {
+                        div().w_full().h_full().child(
+                            code_editor(&state)
+                                .w_full()
+                                .font_size(14.0)
+                                .line_numbers(true)
+                                .code_folding(true)
+                                .syntax(SyntaxConfig::new(ShaderHighlighter::russl()))
+                                .on_change(|_| store().recompile()),
+                        )
+                    });
+                }
+                div().w_full().h_full().child(tabs)
+            },
         )
         .child(
             div()
@@ -48,7 +52,6 @@ pub(super) fn editor(t: &'static Toy) -> impl ElementBuilder {
                     "toy-add-module",
                     icons::PLUS,
                     "Add a module",
-                    true,
                     add_module,
                 )),
         )
@@ -56,9 +59,8 @@ pub(super) fn editor(t: &'static Toy) -> impl ElementBuilder {
 
 /// Add a module tab with a function `main` can import, and show it.
 fn add_module() {
-    let t = toy();
-    let name = {
-        let mut modules = t.modules.lock().unwrap();
+    let (name, names) = {
+        let mut modules = store().modules.lock().unwrap();
         let n = (2..)
             .find(|n| !modules.iter().any(|m| m.name == format!("module{n}")))
             .unwrap();
@@ -70,10 +72,11 @@ fn add_module() {
             name: name.clone(),
             editor: code_editor_state(text),
         });
-        name
+        let names = modules.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
+        (name, names)
     };
-    log(t, format!("added {name}.russl"));
-    t.modules_rev.update(|r| r + 1);
-    t.active.set(name);
-    recompile(t);
+    store().log(format!("added {name}.russl"));
+    store().names.set(names);
+    store().active.set(name);
+    store().recompile();
 }

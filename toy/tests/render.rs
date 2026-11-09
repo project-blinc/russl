@@ -2,7 +2,7 @@
 
 use blinc_recorder::Headless;
 use blinc_recorder::testing::ScreenshotExporter;
-use blinc_theme::{ColorScheme, HybridTheme};
+use blinc_theme::ColorScheme;
 
 #[test]
 fn the_preview_draws_the_starter_sketch() {
@@ -11,20 +11,25 @@ fn the_preview_draws_the_starter_sketch() {
         return;
     }
     let mut ui = Headless::new(1400, 860).unwrap();
-    ui.theme(
-        HybridTheme::bundle().with_css(blinc_cn::cn_styles::CN_STYLES),
-        ColorScheme::Dark,
-    );
+    ui.theme(russl_toy::ui::theme_bundle(), ColorScheme::Dark);
     ui.load_font_data(russl_toy::ui::CODE_FONT.to_vec());
     ui.mount(russl_toy::ui::build_ui);
     ui.advance(500).settle();
     let frame = ui.snapshot().unwrap();
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
     ScreenshotExporter::save_png(&frame, dir.join("russl_toy.png")).unwrap();
-    // Collapsed, the output panel is its header and the preview takes the room.
+    // The WGSL tab, where the panel's tab strip puts it: the bound output block.
+    ui.move_to(477.0, 626.0).mouse_down().mouse_up().settle();
+    let wgsl = ui.snapshot().unwrap();
+    ScreenshotExporter::save_png(&wgsl, dir.join("russl_toy_wgsl.png")).unwrap();
+    // Closed, the panel leaves and the editor and preview take the room.
     ui.click("#toy-toggle-panel").settle();
     let collapsed = ui.snapshot().unwrap();
     ScreenshotExporter::save_png(&collapsed, dir.join("russl_toy_collapsed.png")).unwrap();
+    // Closed, the inspector leaves and the side container folds to the rail.
+    ui.click("#toy-toggle-inspector").settle();
+    let folded = ui.snapshot().unwrap();
+    ScreenshotExporter::save_png(&folded, dir.join("russl_toy_folded.png")).unwrap();
     eprintln!("saved {}", dir.display());
     // The preview fills the right half's top; a drawn sketch varies across it.
     let px = |x: u32, y: u32| {
@@ -45,10 +50,7 @@ fn problems_show_inline_in_their_module_and_in_the_panel() {
         return;
     }
     let mut ui = Headless::new(1400, 860).unwrap();
-    ui.theme(
-        HybridTheme::bundle().with_css(blinc_cn::cn_styles::CN_STYLES),
-        ColorScheme::Dark,
-    );
+    ui.theme(russl_toy::ui::theme_bundle(), ColorScheme::Dark);
     ui.load_font_data(russl_toy::ui::CODE_FONT.to_vec());
     russl_toy::ui::load_sketch(&[
         russl_toy::sketch::Source {

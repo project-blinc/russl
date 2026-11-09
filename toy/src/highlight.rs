@@ -179,6 +179,8 @@ mod tests {
 
     #[test]
     fn each_language_marks_its_own_keywords_types_and_attributes() {
+        // The highlighters take their colours from the theme; the theme is pinned.
+        blinc_theme::ThemeState::init(crate::ui::theme_bundle(), blinc_theme::ColorScheme::Dark);
         let wgsl = ShaderHighlighter::wgsl();
         let line = "@fragment fn fs_main() -> @location(0) vec4<f32> { return vec4(1.0); }";
         assert_eq!(
