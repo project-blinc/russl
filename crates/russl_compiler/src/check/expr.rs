@@ -110,7 +110,11 @@ impl Checker<'_> {
             }
             ExprKind::Unary(op, a) => self.unary(e, op, a),
             ExprKind::Binary(op, a, b) => self.binary(e, op, a, b),
+            ExprKind::Call(f, args) if self.module.functions[f.index()].template.is_some() => {
+                self.instance_call(e, f, &[], &args)
+            }
             ExprKind::Call(f, args) => self.call(e, f, &args),
+            ExprKind::GenericCall(f, generics, args) => self.instance_call(e, f, &generics, &args),
             ExprKind::Builtin(b, args) => self.builtin(e, b, &args),
             ExprKind::Construct(parts) => self.construct(e, preset, &parts),
             ExprKind::Splat(a) => match self.types.get(preset) {
@@ -341,7 +345,7 @@ impl Checker<'_> {
         Some(t)
     }
 
-    fn call(&mut self, e: ExprId, f: FnId, args: &[ExprId]) -> TypeId {
+    pub(super) fn call(&mut self, e: ExprId, f: FnId, args: &[ExprId]) -> TypeId {
         self.calls.push((self.current, f));
         let callee = &self.module.functions[f.index()];
         if callee.stage.is_some() {

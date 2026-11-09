@@ -62,8 +62,27 @@ pub fn emit(
         ..Default::default()
     };
     let mut glsl = Vec::new();
-    let mut glsl_missing = None;
-    for entry in &module.entry_points {
+    let half = module.types.iter().any(|(_, t)| {
+        matches!(
+            t.inner,
+            naga::TypeInner::Scalar(naga::Scalar::F16)
+                | naga::TypeInner::Vector {
+                    scalar: naga::Scalar::F16,
+                    ..
+                }
+                | naga::TypeInner::Matrix {
+                    scalar: naga::Scalar::F16,
+                    ..
+                }
+        )
+    });
+    let mut glsl_missing = half.then(|| "GLSL ES 3.00 has no f16".to_string());
+    let entries = if half {
+        &[][..]
+    } else {
+        &module.entry_points[..]
+    };
+    for entry in entries {
         let stage = match entry.stage {
             naga::ShaderStage::Vertex => Stage::Vertex,
             naga::ShaderStage::Fragment => Stage::Fragment,

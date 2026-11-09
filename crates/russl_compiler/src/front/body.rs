@@ -441,6 +441,21 @@ impl Builder<'_, '_> {
                 self.push(ExprKind::Construct(parts), error, span)
             }
             syn::Expr::If(i) => self.select(i),
+            // `[x; N]`: N copies of one value, with N known when the shader is built.
+            syn::Expr::Repeat(r) => {
+                let n = match self.f.const_value(&r.len) {
+                    Ok(n @ 1..=4096) => n as usize,
+                    Ok(n) => {
+                        return self.error(
+                            r.len.span(),
+                            format!("an array repeats its value 1 to 4096 times, not {n}"),
+                        );
+                    }
+                    Err((s, m)) => return self.error(s, m),
+                };
+                let value = self.expr(&r.expr);
+                self.push(ExprKind::Construct(vec![value; n]), error, span)
+            }
             _ => self.error(span, "this expression has no shader equivalent"),
         }
     }
@@ -506,6 +521,9 @@ impl Builder<'_, '_> {
             if let Some(local) = self.lookup(sym) {
                 return self.push(ExprKind::Local(local), error, span);
             }
+            if let Some(&(v, ty)) = self.f.generic_consts.get(&ident.to_string()) {
+                return self.push(ExprKind::Lit(Lit::Int(v)), ty, span);
+            }
             return match self.f.scope().get(&sym).copied() {
                 Some(Item::Const(c)) => self.push(ExprKind::Const(c), error, span),
                 Some(Item::Global(g)) => self.push(ExprKind::Global(g), error, span),
@@ -517,7 +535,7 @@ impl Builder<'_, '_> {
         // `Type::CONST`: zero and one vectors, and the scalar limits.
         let segs: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
         if let [ty, name] = segs.as_slice()
-            && let Some(t) = super::ty::builtin_type(ty)
+            && let Some(t) = self.f.named_type(ty)
         {
             let id = self.f.types.add(t);
             return match (t, name.as_str()) {
@@ -571,6 +589,38 @@ impl Builder<'_, '_> {
         )
     }
 
+    /// One argument of a turbofish: a type, or a const parameter's value. A bare name is a
+    /// constant when one by that name is in scope, as Rust reads it.
+    fn generic_arg(&mut self, a: &syn::GenericArgument) -> Option<GenericArg> {
+        let value = |this: &mut Self, e: &syn::Expr| match this.f.const_value(e) {
+            Ok(v) => Some(GenericArg::Const(v)),
+            Err((span, message)) => {
+                this.f.sink.error(span, message);
+                None
+            }
+        };
+        match a {
+            syn::GenericArgument::Type(syn::Type::Path(p))
+                if p.path.get_ident().is_some_and(|i| self.f.is_constant(i)) =>
+            {
+                let e = syn::Expr::Path(syn::ExprPath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path: p.path.clone(),
+                });
+                value(self, &e)
+            }
+            syn::GenericArgument::Type(t) => Some(GenericArg::Type(self.f.ty(t))),
+            syn::GenericArgument::Const(e) => value(self, e),
+            other => {
+                self.f
+                    .sink
+                    .error(other.span(), "a generic argument is a type or a constant");
+                None
+            }
+        }
+    }
+
     fn scalar_lit(&mut self, s: Scalar, v: f64, span: proc_macro2::Span) -> ExprId {
         let ty = self.f.types.scalar(s);
         let lit = if s.is_float() {
@@ -590,6 +640,20 @@ impl Builder<'_, '_> {
             return self.error(c.func.span(), "only named functions can be called");
         };
         let args: Vec<ExprId> = c.args.iter().map(|a| self.expr(a)).collect();
+        // `f::<A, B>(..)`: a generic function named with its arguments.
+        if let [seg] = p.path.segments.iter().collect::<Vec<_>>().as_slice()
+            && let syn::PathArguments::AngleBracketed(g) = &seg.arguments
+        {
+            let sym = self.f.names.intern(&seg.ident.to_string());
+            let Some(Item::Fn(id)) = self.f.scope().get(&sym).copied() else {
+                return self.error(
+                    seg.ident.span(),
+                    format!("cannot find function `{}`", seg.ident),
+                );
+            };
+            let generics = g.args.iter().filter_map(|a| self.generic_arg(a)).collect();
+            return self.push(ExprKind::GenericCall(id, generics, args), error, span);
+        }
         if let Some(ident) = p.path.get_ident() {
             let name = ident.to_string();
             let sym = self.f.names.intern(&name);
@@ -617,7 +681,7 @@ impl Builder<'_, '_> {
         let [ty, ctor] = segs.as_slice() else {
             return self.error(span, "unknown function path");
         };
-        let Some(t) = super::ty::builtin_type(ty) else {
+        let Some(t) = self.f.named_type(ty) else {
             return self.error(span, format!("no constructors on `{ty}`"));
         };
         let id = self.f.types.add(t);

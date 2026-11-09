@@ -273,10 +273,20 @@ impl Checker<'_> {
                 }
             }
             ExprKind::Field(base, _) | ExprKind::Index(base, _) => self.place(base),
-            ExprKind::Swizzle(..) => self.error_at(
-                e,
-                "assign one component at a time; a swizzle is not a place",
-            ),
+            ExprKind::Swizzle(base, comps) => {
+                let mut seen = [false; 4];
+                for &c in &comps {
+                    if std::mem::replace(&mut seen[c as usize], true) {
+                        let name = ['x', 'y', 'z', 'w'][c as usize];
+                        self.error_at(
+                            e,
+                            format!("this swizzle names `{name}` twice, so it cannot be assigned"),
+                        );
+                        return;
+                    }
+                }
+                self.place(base);
+            }
             ExprKind::Const(_) => self.error_at(e, "a constant cannot be assigned"),
             ExprKind::Error => {}
             _ => self.error_at(e, "this is a value, not a place that can be assigned"),

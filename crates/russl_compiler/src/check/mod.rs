@@ -2,6 +2,8 @@
 //! their calls, and applies the entry-point, binding and naming rules.
 
 mod expr;
+mod generic;
+mod layout;
 mod rules;
 mod stmt;
 mod texture;
@@ -29,10 +31,19 @@ enum Target {
 }
 
 pub struct Checker<'a> {
-    names: &'a Interner,
+    names: &'a mut Interner,
     types: &'a mut Types,
     module: &'a mut Module,
-    spans: &'a Spans,
+    spans: &'a mut Spans,
+    generics: &'a mut crate::front::Generics,
+    /// Each instance built, by template and arguments.
+    instances: std::collections::HashMap<(u32, Vec<GenericArg>), FnId>,
+    /// Instances built and not yet checked, with their template.
+    unchecked: Vec<(FnId, u32)>,
+    /// Templates whose first instance has been checked; later ones report no warnings.
+    warned: HashSet<u32>,
+    /// Templates some call instantiated, which count as used.
+    instantiated: HashSet<FnId>,
     sink: &'a mut Sink,
     target: Target,
     current: FnId,
@@ -51,17 +62,23 @@ pub struct Checker<'a> {
 }
 
 pub fn module(
-    names: &Interner,
+    names: &mut Interner,
     types: &mut Types,
     module: &mut Module,
-    spans: &Spans,
+    spans: &mut Spans,
     sink: &mut Sink,
+    generics: &mut crate::front::Generics,
 ) -> Analysis {
     let mut c = Checker {
         names,
         types,
         module,
         spans,
+        generics,
+        instances: std::collections::HashMap::new(),
+        unchecked: Vec::new(),
+        instantiated: HashSet::new(),
+        warned: HashSet::new(),
         sink,
         target: Target::Const(ConstId(0)),
         current: FnId(0),
@@ -95,14 +112,14 @@ pub fn module(
         }
     }
     for i in 0..c.module.functions.len() {
+        if c.module.functions[i].template.is_some() {
+            continue;
+        }
         let id = FnId(i as u32);
-        c.target = Target::Fn(id);
-        c.current = id;
         c.root = c.module.functions[i].module == 0;
-        c.loop_depth = 0;
-        c.ret = c.module.functions[i].ret.map(|r| r.0);
-        c.function(id);
+        c.check_function(id);
     }
+    c.check_instances();
     let order = c.order();
     let reachable = c.reachable();
     c.rules(&reachable);
@@ -266,7 +283,10 @@ impl Checker<'_> {
                 format!("`{name}` calls itself; shaders cannot recurse"),
             );
         }
-        out.retain(|f| self.module.functions[f.index()].stage.is_none());
+        out.retain(|f| {
+            let func = &self.module.functions[f.index()];
+            func.stage.is_none() && func.template.is_none()
+        });
         out
     }
 }

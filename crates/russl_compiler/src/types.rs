@@ -273,6 +273,38 @@ impl Types {
     }
 
     /// Whether a type may live in host-shared memory (uniform and storage buffers).
+    /// WGSL's size and alignment of a host-shareable type, in bytes. A runtime-sized array
+    /// counts one element.
+    pub fn size_align(&self, id: TypeId) -> (u32, u32) {
+        let scalar = |s: Scalar| if s == Scalar::F16 { 2 } else { 4 };
+        let vector = |n: u8, s: Scalar| {
+            let w = scalar(s);
+            (n as u32 * w, if n == 2 { 2 * w } else { 4 * w })
+        };
+        match self.get(id) {
+            Type::Scalar(s) | Type::Atomic(s) => (scalar(s), scalar(s)),
+            Type::Vector(n, s) => vector(n, s),
+            Type::Matrix { cols, rows, scalar } => {
+                let (size, align) = vector(rows, scalar);
+                (cols as u32 * round_up(align, size), align)
+            }
+            Type::Array { elem, len } => {
+                let (size, align) = self.size_align(elem);
+                (len.unwrap_or(1) * round_up(align, size), align)
+            }
+            Type::Struct(s) => {
+                let (mut end, mut align) = (0, 1);
+                for &(_, t) in &self.structs[s.0 as usize].fields {
+                    let (size, a) = self.size_align(t);
+                    end = round_up(a, end) + size;
+                    align = align.max(a);
+                }
+                (round_up(align, end), align)
+            }
+            _ => (0, 1),
+        }
+    }
+
     pub fn host_shareable(&self, id: TypeId) -> bool {
         match self.get(id) {
             Type::Scalar(s) | Type::Vector(_, s) | Type::Matrix { scalar: s, .. } => {
@@ -297,6 +329,11 @@ fn vector_prefix(s: Scalar) -> &'static str {
         Scalar::F16 => "H",
         _ => "",
     }
+}
+
+/// `n` rounded up to a multiple of `align`.
+pub fn round_up(align: u32, n: u32) -> u32 {
+    n.div_ceil(align) * align
 }
 
 #[cfg(test)]

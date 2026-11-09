@@ -99,7 +99,7 @@ error: `Vec4::new` needs 4 components, found 3
  --> src/card.rs:7:13
   |
 7 |             Vec4::new(local, d)
-  |             ^^^^^^^^^^^^^^^^^^^
+  |             ^^^^
 ```
 
 ### Shader files
@@ -128,7 +128,14 @@ russl emit shaders/card.russl msl                # or wgsl, hlsl, glsl, spirv
 - **Rust syntax**: `fn`, `struct`, `const`, `let`, `if`/`else`, `match`, `for` over ranges,
   method-call builtins (`v.dot(w)`, `x.clamp(a, b)`, `x.fwidth()`), texture methods
   (`atlas.sample_level(sampler, uv, 0.0)`, `t.load(coord, 0)`, `t.dimensions()`), `discard!()`,
-  Rust operators and casts.
+  swizzles on both sides of `=` (`c.xz = v`), arrays sized by constants (`[f32; TAPS * 2]`) and
+  repeated (`[0.0; N]`), `f16` and `HVec*`, Rust operators and casts.
+- **Generics**: `fn lerp<T: Float>(..)` and `fn blur<const N: u32>(w: [f32; N])`, built once per
+  distinct set of arguments. A call infers them, or names them: `zeros::<4>()`. Bounds are
+  `Float`, `Int`, `Numeric`, `Scalar` and `Vector`.
+- **WGSL's rules, in Rust's words**: entry-point IO, bindings, and the uniform buffer layout
+  (16-byte array strides and struct alignment) are checked before naga sees the module, with
+  the error at the field.
 - **Every target, every compile**: WGSL for WebGPU, MSL for Metal, HLSL for Direct3D 12, SPIR-V
   for Vulkan and GLSL ES for WebGL2, all at build time through naga's backends. A platform takes the
   artifact it needs and never compiles a shader at run time. MSL targets version 2.1; a shader

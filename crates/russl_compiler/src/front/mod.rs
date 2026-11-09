@@ -3,12 +3,15 @@
 
 mod attrs;
 mod body;
+mod generics;
 mod ty;
+
+pub use generics::{Generics, Param};
 
 use crate::diag::{Sink, Spans};
 use crate::hir::{self, ConstId, FnId, GlobalId};
 use crate::intern::{Interner, Symbol};
-use crate::types::{StructDef, StructId, Type, Types};
+use crate::types::{StructDef, StructId, Type, TypeId, Types};
 use std::collections::{HashMap, HashSet};
 use syn::spanned::Spanned;
 
@@ -40,6 +43,12 @@ pub struct Front<'a> {
     public: Vec<HashSet<Symbol>>,
     /// The module whose items are being built.
     current: usize,
+    /// Each constant's initializer and module, by `ConstId`, for array lengths; `None` for a
+    /// pipeline constant, which no length may use.
+    const_src: Vec<Option<(syn::Expr, usize)>>,
+    /// While a generic function's instance is built: its type and const parameters' values.
+    generic_types: HashMap<String, TypeId>,
+    generic_consts: HashMap<String, (i128, TypeId)>,
 }
 
 /// Build the resolved IR of a program. `sources[0]` is the module being compiled; the rest are
@@ -50,7 +59,7 @@ pub fn program(
     types: &mut Types,
     spans: &mut Spans,
     sink: &mut Sink,
-) -> hir::Module {
+) -> (hir::Module, Generics) {
     let n = sources.len();
     let mut f = Front {
         names,
@@ -60,8 +69,12 @@ pub fn program(
         scopes: vec![HashMap::new(); n],
         public: vec![HashSet::new(); n],
         current: 0,
+        const_src: Vec::new(),
+        generic_types: HashMap::new(),
+        generic_consts: HashMap::new(),
     };
     let mut m = hir::Module::default();
+    let mut templates = Vec::new();
 
     // Declare every name of every module, so order does not matter. Ids run across modules in
     // this order, and the passes below visit items in the same order.
@@ -84,6 +97,9 @@ pub fn program(
                 }
                 syn::Item::Const(c) => {
                     nconst += 1;
+                    let pipeline = c.attrs.iter().any(|a| a.path().is_ident("pipeline"));
+                    f.const_src
+                        .push((!pipeline).then(|| ((*c.expr).clone(), mi)));
                     named(&c.ident, is_pub(&c.vis), Item::Const(ConstId(nconst - 1)))
                 }
                 syn::Item::Static(s) => {
@@ -101,6 +117,7 @@ pub fn program(
                 syn::Item::Verbatim(tokens) => match syn::parse2::<attrs::Decl>(tokens.clone()) {
                     Ok(d) if d.is_const => {
                         nconst += 1;
+                        f.const_src.push(None);
                         named(&d.ident, is_pub(&d.vis), Item::Const(ConstId(nconst - 1)))
                     }
                     Ok(d) => {
@@ -174,12 +191,32 @@ pub fn program(
         f.current = mi;
         for item in &src.file.items {
             if let syn::Item::Fn(func) = item {
-                let built = f.function(func);
+                let built = if func.sig.generics.params.is_empty() {
+                    f.function(func)
+                } else {
+                    let k = templates.len() as u32;
+                    if let Some(t) = f.template(func) {
+                        templates.push(t);
+                    }
+                    let span = f.spans.add(func.sig.ident.span());
+                    hir::Function {
+                        module: mi as u32,
+                        name: f.names.intern(&func.sig.ident.to_string()),
+                        template: (templates.len() as u32 > k).then_some(k),
+                        instance: None,
+                        stage: None,
+                        params: Vec::new(),
+                        ret: None,
+                        ret_span: span,
+                        body: hir::Body::default(),
+                        span,
+                    }
+                };
                 m.functions.push(built);
             }
         }
     }
-    m
+    (m, f.into_generics(templates))
 }
 
 /// One name a `use` item brings in.
@@ -509,12 +546,6 @@ impl Front<'_> {
 
     fn function(&mut self, func: &syn::ItemFn) -> hir::Function {
         let name = self.names.intern(&func.sig.ident.to_string());
-        if !func.sig.generics.params.is_empty() {
-            self.sink.error(
-                func.sig.generics.span(),
-                "generic functions are not supported yet",
-            );
-        }
         let stage = attrs::stage(&func.attrs, self.sink);
         let ret = match &func.sig.output {
             syn::ReturnType::Default => None,
@@ -529,6 +560,8 @@ impl Front<'_> {
         hir::Function {
             module: self.current as u32,
             name,
+            template: None,
+            instance: None,
             stage,
             params,
             ret,

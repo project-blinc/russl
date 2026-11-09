@@ -262,6 +262,8 @@ impl Checker<'_> {
                     let runtime = self.runtime_array_misplaced(ty, space == Space::Uniform);
                     if runtime {
                         self.warn_or_error(span, true, "a runtime-sized array is a storage buffer's whole type or its struct's last field");
+                    } else if space == Space::Uniform {
+                        self.uniform_layout(ty, span);
                     }
                 }
                 Space::Handle
@@ -390,7 +392,9 @@ impl Checker<'_> {
         let called: std::collections::HashSet<FnId> = self.calls.iter().map(|c| c.1).collect();
         let mut warn = Vec::new();
         for (i, f) in self.module.functions.iter().enumerate() {
-            if f.module == 0 && f.stage.is_none() && !called.contains(&FnId(i as u32)) {
+            let used =
+                called.contains(&FnId(i as u32)) || self.instantiated.contains(&FnId(i as u32));
+            if f.module == 0 && f.stage.is_none() && f.instance.is_none() && !used {
                 warn.push((
                     f.span,
                     format!("function `{}` is never used", self.names.get(f.name)),

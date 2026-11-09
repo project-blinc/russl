@@ -419,8 +419,9 @@ pub fn literal(lit: &hir::Lit, ty: Type) -> naga::Literal {
         (hir::Lit::Bool(b), _) => naga::Literal::Bool(*b),
         (hir::Lit::Int(v), Scalar::U32) => naga::Literal::U32(*v as u32),
         (hir::Lit::Int(v), Scalar::F32) => naga::Literal::F32(*v as f32),
+        (hir::Lit::Int(v), Scalar::F16) => naga::Literal::F16(half::f16::from_f64(*v as f64)),
         (hir::Lit::Int(v), _) => naga::Literal::I32(*v as i32),
-        (hir::Lit::Float(v), Scalar::F16) => naga::Literal::F32(*v as f32),
+        (hir::Lit::Float(v), Scalar::F16) => naga::Literal::F16(half::f16::from_f64(*v)),
         (hir::Lit::Float(v), _) => naga::Literal::F32(*v as f32),
     }
 }

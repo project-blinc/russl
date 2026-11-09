@@ -116,6 +116,11 @@ pub struct Function {
     /// Index of the source module: 0 is the module being compiled.
     pub module: u32,
     pub name: Symbol,
+    /// A generic function: the index of its template, which the front end instantiates. The
+    /// function itself has no body and is never checked or lowered.
+    pub template: Option<u32>,
+    /// An instance of a generic function, as it reads in messages: `lerp::<Vec3>`.
+    pub instance: Option<String>,
     pub stage: Option<Stage>,
     pub params: Vec<Param>,
     pub ret: Option<(TypeId, Option<Io>)>,
@@ -209,6 +214,13 @@ pub struct Expr {
     pub span: SpanId,
 }
 
+/// A generic function's argument: a type, or a const parameter's value.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum GenericArg {
+    Type(TypeId),
+    Const(i128),
+}
+
 #[derive(Clone, Debug)]
 pub enum Lit {
     Int(i128),
@@ -225,6 +237,9 @@ pub enum ExprKind {
     Unary(UnOp, ExprId),
     Binary(BinOp, ExprId, ExprId),
     Call(FnId, Vec<ExprId>),
+    /// A call naming a generic function's arguments: `blur::<4>(x)`. The analyzer turns it,
+    /// like a `Call` of a generic function, into a call of the instance.
+    GenericCall(FnId, Vec<GenericArg>, Vec<ExprId>),
     Builtin(crate::builtins::Builtin, Vec<ExprId>),
     /// A vector, matrix, array or struct built from parts; the type says which.
     Construct(Vec<ExprId>),

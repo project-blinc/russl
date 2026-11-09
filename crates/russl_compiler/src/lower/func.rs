@@ -30,7 +30,10 @@ pub fn function<'a>(l: &mut Lower<'a>, id: FnId) -> naga::Function {
     let f: &'a hir::Function = &hir.functions[id.index()];
     let body = &f.body;
     let mut func = naga::Function {
-        name: Some(l.names.get(f.name).to_string()),
+        name: Some(match &f.instance {
+            Some(label) => mangle(label),
+            None => l.names.get(f.name).to_string(),
+        }),
         ..Default::default()
     };
     let mut slots = HashMap::new();
@@ -191,6 +194,10 @@ impl FnLower<'_, '_> {
                 }
             }
             StmtKind::Assign { target, op, value } => {
+                if let ExprKind::Swizzle(base, comps) = &self.body.expr(*target).kind {
+                    let (base, comps) = (*base, comps.clone());
+                    return self.assign_swizzle(*target, base, &comps, *op, *value, span);
+                }
                 let ptr = self.place(*target).expect("the analyzer checked the place");
                 let mut v = self.value(*value);
                 if let Some(op) = op {
@@ -560,6 +567,50 @@ impl FnLower<'_, '_> {
         }
     }
 
+    /// `v.xz = value`, or `v.xz op= value`: naga stores no swizzle, so each component is stored
+    /// on its own, from a value computed before the first store.
+    fn assign_swizzle(
+        &mut self,
+        target: ExprId,
+        base: ExprId,
+        comps: &[u8],
+        op: Option<hir::BinOp>,
+        value: ExprId,
+        span: naga::Span,
+    ) {
+        let base_ptr = self.place(base).expect("the analyzer checked the place");
+        let mut v = self.value(value);
+        if let Some(op) = op {
+            let current = self.value(target);
+            let tt = self.body.expr(target).ty;
+            let vt = self.body.expr(value).ty;
+            v = self.binary(op, current, tt, v, vt, span);
+        }
+        for (i, &c) in comps.iter().enumerate() {
+            let part = self.append(
+                E::AccessIndex {
+                    base: v,
+                    index: i as u32,
+                },
+                span,
+            );
+            let pointer = self.append(
+                E::AccessIndex {
+                    base: base_ptr,
+                    index: c as u32,
+                },
+                span,
+            );
+            self.push(
+                S::Store {
+                    pointer,
+                    value: part,
+                },
+                span,
+            );
+        }
+    }
+
     /// A texture operation; `vals` holds the image first, as the analyzer checked them.
     fn texture(
         &mut self,
@@ -617,20 +668,7 @@ impl FnLower<'_, '_> {
         let span = naga_span(expr.span);
         let ty = expr.ty;
         match expr.kind.clone() {
-            ExprKind::Lit(lit) => {
-                let v = self.append(E::Literal(literal(&lit, self.l.ty.get(ty))), span);
-                if self.l.ty.scalar_of(ty) == Some(Scalar::F16) {
-                    return self.append(
-                        E::As {
-                            expr: v,
-                            kind: naga::ScalarKind::Float,
-                            convert: Some(2),
-                        },
-                        span,
-                    );
-                }
-                v
-            }
+            ExprKind::Lit(lit) => self.append(E::Literal(literal(&lit, self.l.ty.get(ty))), span),
             ExprKind::Local(l) => match self.slots[&l] {
                 Slot::Value(v) => v,
                 Slot::Var(_) => unreachable!("handled as a place"),
@@ -815,7 +853,7 @@ impl FnLower<'_, '_> {
                     span,
                 )
             }
-            ExprKind::Member(..) | ExprKind::Error => {
+            ExprKind::Member(..) | ExprKind::GenericCall(..) | ExprKind::Error => {
                 unreachable!("resolved or reported before lowering")
             }
         }
@@ -879,4 +917,18 @@ fn leaves_loop(block: &hir::Block) -> bool {
         StmtKind::Switch { cases, .. } => cases.iter().any(|c| leaves_loop(&c.1)),
         _ => false,
     })
+}
+
+/// An instance's function name: `lerp::<Vec3>` becomes `lerp_vec3`, `blur::<[f32; 4], 2>`
+/// `blur_f32_4_2`. naga's writers make any clash with another name unique.
+fn mangle(label: &str) -> String {
+    let mut out = String::new();
+    for c in label.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.ends_with('_') {
+            out.push('_');
+        }
+    }
+    out.trim_end_matches('_').to_string()
 }

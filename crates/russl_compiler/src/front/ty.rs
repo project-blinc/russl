@@ -10,6 +10,9 @@ impl Front<'_> {
             syn::Type::Path(p) if p.qself.is_none() && p.path.segments.len() == 1 => {
                 let seg = &p.path.segments[0];
                 let name = seg.ident.to_string();
+                if let Some(&ty) = self.generic_types.get(&name) {
+                    return ty;
+                }
                 if let Some(ty) = builtin_type(&name) {
                     return self.types.add(ty);
                 }
@@ -99,20 +102,116 @@ impl Front<'_> {
         }
     }
 
-    /// An array length: an integer literal. Lengths from constants come with const evaluation.
+    /// An array length: a positive integer built at compile time from literals, constants,
+    /// arithmetic and casts.
     fn array_len(&mut self, e: &syn::Expr) -> Option<u32> {
-        if let syn::Expr::Lit(syn::ExprLit {
-            lit: syn::Lit::Int(i),
-            ..
-        }) = e
-            && let Ok(n) = i.base10_parse::<u32>()
-            && n > 0
-        {
-            return Some(n);
+        match self.const_int(e, self.current, 0) {
+            Ok(n) if n > 0 && n <= u32::MAX as i128 => Some(n as u32),
+            Ok(n) => {
+                self.sink.error(
+                    e.span(),
+                    format!("an array length is positive, and this is {n}"),
+                );
+                None
+            }
+            Err((span, message)) => {
+                self.sink.error(span, message);
+                None
+            }
         }
-        self.sink
-            .error(e.span(), "an array length is a positive integer literal");
-        None
+    }
+
+    /// The value of an integer expression known when the shader is built, read in the module
+    /// being built.
+    pub fn const_value(&mut self, e: &syn::Expr) -> Result<i128, (proc_macro2::Span, String)> {
+        self.const_int(e, self.current, 0)
+    }
+
+    /// Whether `ident` names a constant here: a const parameter or a module constant.
+    pub fn is_constant(&self, ident: &syn::Ident) -> bool {
+        let name = ident.to_string();
+        self.generic_consts.contains_key(&name)
+            || self.scopes[self.current]
+                .iter()
+                .any(|(s, i)| matches!(i, Item::Const(_)) && self.names.get(*s) == name)
+    }
+
+    /// The value of an integer expression known when the shader is built, read in `module`.
+    fn const_int(
+        &mut self,
+        e: &syn::Expr,
+        module: usize,
+        depth: u32,
+    ) -> Result<i128, (proc_macro2::Span, String)> {
+        let fail = |e: &dyn Spanned, m: &str| Err((e.span(), m.to_string()));
+        match e {
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(i),
+                ..
+            }) => i
+                .base10_parse::<i128>()
+                .map_err(|err| (i.span(), err.to_string())),
+            syn::Expr::Paren(p) => self.const_int(&p.expr, module, depth),
+            syn::Expr::Group(g) => self.const_int(&g.expr, module, depth),
+            syn::Expr::Cast(c) => self.const_int(&c.expr, module, depth),
+            syn::Expr::Unary(syn::ExprUnary {
+                op: syn::UnOp::Neg(_),
+                expr,
+                ..
+            }) => Ok(-self.const_int(expr, module, depth)?),
+            syn::Expr::Binary(b) => {
+                let (l, r) = (
+                    self.const_int(&b.left, module, depth)?,
+                    self.const_int(&b.right, module, depth)?,
+                );
+                use syn::BinOp as B;
+                let v = match b.op {
+                    B::Add(_) => l.checked_add(r),
+                    B::Sub(_) => l.checked_sub(r),
+                    B::Mul(_) => l.checked_mul(r),
+                    B::Div(_) => l.checked_div(r),
+                    B::Rem(_) => l.checked_rem(r),
+                    B::Shl(_) => u32::try_from(r).ok().and_then(|r| l.checked_shl(r)),
+                    B::Shr(_) => u32::try_from(r).ok().and_then(|r| l.checked_shr(r)),
+                    B::BitAnd(_) => Some(l & r),
+                    B::BitOr(_) => Some(l | r),
+                    B::BitXor(_) => Some(l ^ r),
+                    _ => return fail(b, "an array length takes integer arithmetic only"),
+                };
+                v.ok_or_else(|| (b.span(), "this overflows or divides by zero".to_string()))
+            }
+            syn::Expr::Path(p) if p.path.get_ident().is_some() => {
+                let ident = p.path.get_ident().expect("checked");
+                if let Some(&(v, _)) = self.generic_consts.get(&ident.to_string()) {
+                    return Ok(v);
+                }
+                let sym = self.names.intern(&ident.to_string());
+                match self.scopes[module].get(&sym).copied() {
+                    Some(Item::Const(id)) => {
+                        if depth > 64 {
+                            return fail(
+                                ident,
+                                "these constants are defined in terms of each other",
+                            );
+                        }
+                        match self.const_src[id.index()].clone() {
+                            Some((init, m)) => self.const_int(&init, m, depth + 1),
+                            None => fail(
+                                ident,
+                                &format!(
+                                    "`{ident}` is a pipeline constant, set per pipeline; an array length is fixed when the shader is built"
+                                ),
+                            ),
+                        }
+                    }
+                    _ => fail(ident, &format!("cannot find constant `{ident}`")),
+                }
+            }
+            other => fail(
+                other,
+                "an array length is an integer built from literals and constants",
+            ),
+        }
     }
 }
 

@@ -139,11 +139,19 @@ pub fn compile_program_with(
     let mut spans = diag::Spans::default();
     let mut sink = diag::Sink::default();
 
-    let mut module = front::program(&sources, &mut names, &mut types, &mut spans, &mut sink);
+    let (mut module, mut generics) =
+        front::program(&sources, &mut names, &mut types, &mut spans, &mut sink);
     if sink.has_errors() {
         return Err(sink.items);
     }
-    let analysis = check::module(&names, &mut types, &mut module, &spans, &mut sink);
+    let analysis = check::module(
+        &mut names,
+        &mut types,
+        &mut module,
+        &mut spans,
+        &mut sink,
+        &mut generics,
+    );
     if sink.has_errors() {
         return Err(sink.items);
     }
