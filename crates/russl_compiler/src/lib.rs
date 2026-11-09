@@ -20,6 +20,7 @@ mod native;
 mod reflect;
 #[cfg(feature = "ariadne")]
 mod render;
+mod spirv;
 mod targets;
 mod types;
 

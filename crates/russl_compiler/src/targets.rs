@@ -79,6 +79,7 @@ pub fn emit(
     let spirv =
         naga::back::spv::write_vec(module, info, &naga::back::spv::Options::default(), None)
             .map_err(|e| fail("SPIR-V", &e))?;
+    let spirv = crate::spirv::strip_unneeded_layout(&spirv);
 
     // GLSL ES 3.00 is WebGL2's language: one source per entry point, and no compute stage.
     let glsl_options = naga::back::glsl::Options {

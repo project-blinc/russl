@@ -185,3 +185,24 @@ fn entry_points(a: &Artifacts) -> Vec<(String, Stage)> {
         })
         .collect()
 }
+
+/// Explicit layout belongs to buffers: workgroup and function memory have none.
+#[test]
+fn only_buffer_types_keep_an_explicit_layout() {
+    let (_, a) = corpus().into_iter().find(|(n, _)| n == "compute").unwrap();
+    let w = &a.spirv;
+    let mut strides = 0;
+    let mut i = 5;
+    while i < w.len() {
+        let (count, op) = ((w[i] >> 16) as usize, w[i] & 0xffff);
+        // OpDecorate <target> ArrayStride <n>
+        if op == 71 && w[i + 2] == 6 {
+            strides += 1;
+        }
+        i += count;
+    }
+    assert_eq!(
+        strides, 1,
+        "only DATA's runtime-sized array keeps ArrayStride"
+    );
+}
