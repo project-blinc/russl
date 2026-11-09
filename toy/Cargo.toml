@@ -1,0 +1,37 @@
+[package]
+name = "russl_toy"
+description = "russl toy: write russl and watch it draw, live, in a Blinc app"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+publish = false
+
+# Its own workspace: it builds Blinc, which russl's own CI has no need to.
+[workspace]
+
+[[bin]]
+name = "russl-toy"
+path = "src/main.rs"
+
+[dependencies]
+russl_compiler = { path = "../crates/russl_compiler" }
+blinc_app = { git = "https://github.com/project-blinc/Blinc", rev = "b07ebd9b56bb5b617e2d22555a4c2ae9896a5f92" }
+blinc_core = { git = "https://github.com/project-blinc/Blinc", rev = "b07ebd9b56bb5b617e2d22555a4c2ae9896a5f92" }
+blinc_layout = { git = "https://github.com/project-blinc/Blinc", rev = "b07ebd9b56bb5b617e2d22555a4c2ae9896a5f92" }
+blinc_cn = { git = "https://github.com/project-blinc/Blinc", rev = "b07ebd9b56bb5b617e2d22555a4c2ae9896a5f92" }
+blinc_theme = { git = "https://github.com/project-blinc/Blinc", rev = "b07ebd9b56bb5b617e2d22555a4c2ae9896a5f92" }
+proc-macro2 = "1.0.95"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+blinc_recorder = { git = "https://github.com/project-blinc/Blinc", rev = "b07ebd9b56bb5b617e2d22555a4c2ae9896a5f92", features = ["headless"] }
+naga = { version = "=26.0.0", features = ["wgsl-in"] }
+
+# Blinc builds its shaders with russl from crates.io; the toy builds both with this checkout.
+[patch.crates-io]
+russl = { path = "../crates/russl" }
+russl_macros = { path = "../crates/russl_macros" }
+russl_expand = { path = "../crates/russl_expand" }
+russl_compiler = { path = "../crates/russl_compiler" }
