@@ -1,4 +1,5 @@
-//! The editor: one tab per module of the sketch, and a button that adds one. `main` holds the
+//! The editor: a tab per open module of the sketch, closed from its tab's close button, and a
+//! button that adds one. `main` holds the
 //! entry point; another module is imported from it by name, `use crate::<name>::f;`. Each
 //! editor fills its tab, which fills the panel.
 
@@ -9,16 +10,24 @@ use blinc_cn::prelude::*;
 use blinc_core::reactive::computed;
 
 /// The editor panel: its tabs, made again only when the set of modules changes, with the add
-/// button at the header's end.
+/// button at the header's end. The tabs can be dragged into a new order, which the store keeps;
+/// the root module stays the root whatever its place.
 pub(super) fn editor() -> impl ElementBuilder {
     bordered()
         .relative()
         .for_each(
-            // One tabs element for the whole set: made again when a module comes or goes.
+            // One tabs element for the whole set: made again when a module comes or goes, not
+            // when the tabs are reordered, since they already show the new order.
             computed(move |g| vec![g.get(store().names).unwrap_or_default()]),
-            |names: &Vec<String>| names.join("/"),
+            |names: &Vec<String>| {
+                let mut set = names.clone();
+                set.sort();
+                set.join("/")
+            },
             move |names: Vec<String>| {
-                let mut tabs = cn::tabs(store().active);
+                let mut tabs = cn::tabs(store().active)
+                    .reorderable(|order| store().names.set(order))
+                    .closable(|name| store().close_tab(name));
                 for name in names {
                     let state = store()
                         .modules
@@ -59,7 +68,7 @@ pub(super) fn editor() -> impl ElementBuilder {
 
 /// Add a module tab with a function `main` can import, and show it.
 fn add_module() {
-    let (name, names) = {
+    let name = {
         let mut modules = store().modules.lock().unwrap();
         let n = (2..)
             .find(|n| !modules.iter().any(|m| m.name == format!("module{n}")))
@@ -72,11 +81,9 @@ fn add_module() {
             name: name.clone(),
             editor: code_editor_state(text),
         });
-        let names = modules.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
-        (name, names)
+        name
     };
     store().log(format!("added {name}.russl"));
-    store().names.set(names);
-    store().active.set(name);
+    store().show(&name);
     store().recompile();
 }

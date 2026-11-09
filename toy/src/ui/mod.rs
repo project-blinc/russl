@@ -38,6 +38,7 @@ const TOY_CSS: &str = r#"
     overflow: hidden;
 }
 .cn-sidebar.toy-rail { border-right: none; }
+.cn-tabs-list { border-radius: 0; }
 .toy-inspector {
     border-left: 1px solid var(--border);
 }
@@ -190,9 +191,10 @@ fn side() -> Div {
     let rail = cn::sidebar(store().rail_collapsed)
         .class("toy-rail")
         .show_toggle(false)
-        .item(
+        .toggle_item(
             "Inspector",
             to_svg(icons::SLIDERS_HORIZONTAL, 16.0),
+            store().inspector_open,
             move || store().inspector_open.update(|o| !o),
         );
     div()

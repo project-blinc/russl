@@ -28,7 +28,8 @@ pub(crate) struct ModuleTab {
 /// window reads it through [`store`], in builders and in handlers alike.
 pub(crate) struct EditorStore {
     pub modules: Mutex<Vec<ModuleTab>>,
-    /// The modules' names, in tab order: the tabs follow it.
+    /// The modules whose tabs are open, in tab order: the tabs follow it. A closed module stays
+    /// in the sketch.
     pub names: Signal<Vec<String>>,
     /// The tab shown: a module's name.
     pub active: Signal<String>,
@@ -107,6 +108,33 @@ impl EditorStore {
         self.names
             .set(sources.iter().map(|s| s.name.clone()).collect());
         self.recompile();
+    }
+
+    /// Close module `name`'s tab, showing its neighbour if it was shown. The module stays in
+    /// the sketch, and [`Self::show`] opens its tab again.
+    pub(crate) fn close_tab(&self, name: &str) {
+        let mut names = self.names.try_get().unwrap_or_default();
+        let Some(at) = names.iter().position(|n| n == name) else {
+            return;
+        };
+        names.remove(at);
+        if self.active.try_get().as_deref() == Some(name)
+            && let Some(next) = names.get(at).or(names.last())
+        {
+            self.active.set(next.clone());
+        }
+        self.names.set(names);
+    }
+
+    /// Show module `name`'s tab, opening it at the end if it was closed.
+    pub(crate) fn show(&self, name: &str) {
+        self.names.update(|mut names| {
+            if !names.iter().any(|n| n == name) {
+                names.push(name.to_string());
+            }
+            names
+        });
+        self.active.set(name.to_string());
     }
 
     /// The most console lines kept.

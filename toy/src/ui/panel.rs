@@ -67,12 +67,13 @@ fn output(
             scroll()
                 .w_full()
                 .h_full()
-                .direction(ScrollDirection::Both)
+                .direction(ScrollDirection::Vertical)
                 .child(
                     Code::bound(text)
                         .font_size(12.0)
                         .line_numbers(true)
-                        .syntax(SyntaxConfig::new(lang())),
+                        .syntax(SyntaxConfig::new(lang()))
+                        .w_full(),
                 ),
         )
     }
@@ -145,7 +146,7 @@ fn reveal(index: usize, at: Option<(usize, usize)>) {
         .get(index)
         .map(|m| (m.name.clone(), m.editor.clone()));
     let Some((name, editor)) = found else { return };
-    store().active.set(name);
+    store().show(&name);
     if let Some((line, column)) = at
         && let Ok(mut d) = editor.lock()
     {
