@@ -1,1 +1,1 @@
-{"author":{"id":"85a3c31a64931f83958f26b24045fef8415ea6ff04d942d15661891c77fc0695"},"ops":[{"type":3,"timestamp":1794217268,"nonce":"dq+1L+cel772YkggRrdUSGhBuTQ=","message":"Landed in 84e60b9 (full: 84e60b957076cb44963fb296f6b334bf5bbfd47f) and df85835 (full: df8583544dd8112cc63935f7d17a5fd5632e9ad5); CI green on Linux, macOS, Windows and 1.88, trybuild cases included.","files":null}]}
+{"author":{"id":"85a3c31a64931f83958f26b24045fef8415ea6ff04d942d15661891c77fc0695"},"ops":[{"type":4,"timestamp":1794217268,"nonce":"1bs41aPVzV0mwOPbeFy893HBLPU=","status":2}]}
