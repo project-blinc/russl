@@ -1,0 +1,13 @@
+[package]
+name = "russl_build"
+description = "Compile russl shader files from build.rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+russl_compiler.workspace = true
+proc-macro2.workspace = true

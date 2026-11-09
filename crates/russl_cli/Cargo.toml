@@ -1,0 +1,17 @@
+[package]
+name = "russl_cli"
+description = "The russl command: check a shader file or print what it compiles to"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "russl"
+path = "src/main.rs"
+
+[dependencies]
+russl_compiler.workspace = true
+proc-macro2.workspace = true

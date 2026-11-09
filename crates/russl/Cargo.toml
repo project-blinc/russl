@@ -1,0 +1,18 @@
+[package]
+name = "russl"
+description = "Rust Shader Language: shaders in Rust syntax, compiled at build time to WGSL and native shader languages"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "../../README.md"
+keywords = ["shader", "wgsl", "gpu", "wgpu", "macro"]
+categories = ["graphics", "rendering", "compilers"]
+
+[dependencies]
+russl_macros.workspace = true
+
+[dev-dependencies]
+naga = { workspace = true, features = ["wgsl-in"] }

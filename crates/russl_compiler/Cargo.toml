@@ -1,0 +1,18 @@
+[package]
+name = "russl_compiler"
+description = "The russl compiler: Rust-syntax shader source to naga, validated, emitted per target"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+naga.workspace = true
+proc-macro2.workspace = true
+syn.workspace = true
+
+[dev-dependencies]
+# Tests parse the output back to check it is valid WGSL.
+naga = { workspace = true, features = ["wgsl-in"] }
