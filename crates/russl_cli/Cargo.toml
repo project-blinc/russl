@@ -7,8 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-# Not published yet, like russl_build.
-publish = false
+readme = "../../README.md"
+keywords = ["shader", "wgsl", "cli"]
+categories = ["graphics", "rendering", "command-line-utilities"]
 
 [[bin]]
 name = "russl"
