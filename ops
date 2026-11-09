@@ -1,1 +1,1 @@
-{"author":{"id":"85a3c31a64931f83958f26b24045fef8415ea6ff04d942d15661891c77fc0695"},"ops":[{"type":5,"timestamp":1794184805,"nonce":"Lfxduh8ZBVVkixnWWHnbxiUua7I=","added":["debt"],"removed":null}]}
+{"author":{"id":"85a3c31a64931f83958f26b24045fef8415ea6ff04d942d15661891c77fc0695"},"ops":[{"type":2,"timestamp":1794184805,"nonce":"KVUIxi3zSxBJpalPHrZdYmmjeyk=","title":"Native targets match the consumer's binding model, validated in CI","was":"Offline backends: MSL, HLSL, SPIR-V and GLSL ES at build time"}]}
