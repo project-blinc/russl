@@ -2,8 +2,8 @@
 //! target as consts, or to an error at each offending token.
 //!
 //! A proc macro sees only its own tokens, so imports travel by callback. Every expansion
-//! defines `__russl_source` in its Rust module: a macro that hands the module's source to a
-//! continuation. `use crate::sdf::common::f;` expands to `crate::sdf::common::__russl_source!`,
+//! defines `russl_module` in its Rust module: a macro that hands the module's source to a
+//! continuation. `use crate::sdf::common::f;` expands to `crate::sdf::common::russl_module!`,
 //! which calls `::russl::__russl_continue!` with the source appended; the continuation queues
 //! that module's own dependencies and, once every module of the program is in hand, compiles.
 //! Each expansion also re-exports every module it loaded, directly or not, as
@@ -18,6 +18,17 @@ use quote::{format_ident, quote, quote_spanned};
 use russl_compiler::{Diagnostic, Severity};
 use state::{Pending, State};
 
+/// `module::russl_module`, the macro that delivers a module's source. Its name carries the span
+/// of the module it is looked up in, so a Rust module with no russl module in it is reported at
+/// the `use` that names it: ``could not find `russl_module` in `plain` ``.
+fn source_path(module: Tokens, span: Option<proc_macro2::Span>) -> Tokens {
+    let name = syn::Ident::new(
+        "russl_module",
+        span.unwrap_or_else(proc_macro2::Span::call_site),
+    );
+    quote! { #module::#name }
+}
+
 /// Compile a russl module at build time. Expands to one const per target (`WGSL`, `MSL`, `HLSL`,
 /// `SPIRV` and `GLSL`), or to nothing but its import interface for a library module.
 #[proc_macro]
@@ -26,7 +37,10 @@ pub fn russl(input: TokenStream) -> TokenStream {
     let pending = match specialization(&root) {
         Err(d) => return errors(&d).into(),
         Ok(Some((target, _))) => vec![Pending {
-            path: quote! { #target::__russl_source },
+            path: source_path(
+                quote! { #target },
+                target.segments.last().map(|s| s.ident.span()),
+            ),
             root_key: Some(SPECIALIZE.into()),
             dep: None,
         }],
@@ -34,7 +48,10 @@ pub fn russl(input: TokenStream) -> TokenStream {
             Ok(paths) => paths
                 .into_iter()
                 .map(|(key, path)| Pending {
-                    path: quote! { #path::__russl_source },
+                    path: {
+                        let span = path.clone().into_iter().last().map(|t| t.span());
+                        source_path(path, span)
+                    },
                     root_key: Some(key),
                     dep: None,
                 })
@@ -173,7 +190,7 @@ fn interface(st: &State) -> Tokens {
             };
         }
         #[doc(hidden)]
-        pub use #source_macro as __russl_source;
+        pub use #source_macro as russl_module;
         #(#aliases)*
     }
 }

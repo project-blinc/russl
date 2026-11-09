@@ -132,7 +132,7 @@ impl State {
     }
 }
 
-/// `a::b::__russl_source` without its last segment.
+/// `a::b::russl_module` without its last segment.
 fn module_part(path: &Tokens) -> Tokens {
     let parsed: syn::Path = syn::parse2(path.clone()).expect("a macro path");
     let mut segs = parsed.segments.clone();

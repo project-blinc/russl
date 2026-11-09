@@ -3,12 +3,14 @@
 //! Source in Rust syntax goes through a front end of its own: identifiers are interned, types
 //! live in a hash-consed arena, names resolve to ids, and an analyzer types every expression
 //! and checks the module's rules. The checked module is lowered straight to a [`naga::Module`],
-//! validated, and written for every target: WGSL, MSL, HLSL, SPIR-V and GLSL ES. The macro, the
-//! build driver and the CLI all call [`compile`].
+//! validated, and written for every target: WGSL, MSL, HLSL, SPIR-V and GLSL ES. The macro calls
+//! [`compile_program`] with the modules rustc delivered; the build driver and the CLI read a
+//! [`Program`] from files.
 
 mod builtins;
 mod check;
 mod diag;
+mod files;
 mod front;
 mod hir;
 mod intern;
@@ -19,8 +21,9 @@ mod targets;
 mod types;
 
 pub use diag::{Diagnostic, Severity};
+pub use files::{Program, SourceFile};
 #[cfg(feature = "ariadne")]
-pub use render::render;
+pub use render::{render, render_program};
 
 use proc_macro2::{Span, TokenStream};
 
@@ -94,11 +97,14 @@ pub fn compile(source: TokenStream) -> Result<Artifacts, Vec<Diagnostic>> {
 }
 
 /// The module paths a module's `use` items name, each once: a key (as [`Module::imports`]
-/// expects it) and the path's tokens.
+/// expects it) and the path's tokens, with the spans they were written with.
 pub fn use_paths(source: TokenStream) -> Result<Vec<(String, TokenStream)>, Diagnostic> {
     let file: syn::File =
         syn::parse2(source).map_err(|e| Diagnostic::error(e.span(), e.to_string()))?;
-    Ok(front::use_paths(&file))
+    Ok(front::use_paths(&file)
+        .into_iter()
+        .map(|(key, path)| (key, quote::quote! { #(#path)::* }))
+        .collect())
 }
 
 /// Compile a program: `modules[0]` is the module being compiled, the others what it imports.

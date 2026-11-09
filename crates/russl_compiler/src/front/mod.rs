@@ -185,6 +185,8 @@ pub fn program(
 /// One name a `use` item brings in.
 struct UseLeaf {
     module: String,
+    /// The module path as written, with its spans.
+    path: Vec<syn::Ident>,
     /// `None` for a glob.
     name: Option<syn::Ident>,
     alias: Option<syn::Ident>,
@@ -198,41 +200,60 @@ pub fn use_key(segments: &[String]) -> String {
 }
 
 /// The module paths a file imports from, each once, in order: the key and the path's tokens.
-pub fn use_paths(file: &syn::File) -> Vec<(String, proc_macro2::TokenStream)> {
-    let mut out: Vec<(String, proc_macro2::TokenStream)> = Vec::new();
+pub fn use_paths(file: &syn::File) -> Vec<(String, Vec<syn::Ident>)> {
+    let mut out: Vec<(String, Vec<syn::Ident>)> = Vec::new();
     for leaf in use_leaves(file) {
         if !out.iter().any(|(k, _)| *k == leaf.module) {
-            let path: proc_macro2::TokenStream = leaf.module.parse().unwrap_or_default();
-            out.push((leaf.module, path));
+            out.push((leaf.module, leaf.path));
+        }
+    }
+    out
+}
+
+/// Each module path a file imports from, once, with the span of the first name taken from it.
+pub fn use_modules(file: &syn::File) -> Vec<(String, proc_macro2::Span)> {
+    let mut out: Vec<(String, proc_macro2::Span)> = Vec::new();
+    for leaf in use_leaves(file) {
+        if !out.iter().any(|(k, _)| *k == leaf.module) {
+            out.push((leaf.module, leaf.span));
         }
     }
     out
 }
 
 fn use_leaves(file: &syn::File) -> Vec<UseLeaf> {
-    fn walk(tree: &syn::UseTree, prefix: &mut Vec<String>, public: bool, out: &mut Vec<UseLeaf>) {
+    fn walk(
+        tree: &syn::UseTree,
+        prefix: &mut Vec<syn::Ident>,
+        public: bool,
+        out: &mut Vec<UseLeaf>,
+    ) {
+        let key = |p: &[syn::Ident]| use_key(&p.iter().map(|i| i.to_string()).collect::<Vec<_>>());
         match tree {
             syn::UseTree::Path(p) => {
-                prefix.push(p.ident.to_string());
+                prefix.push(p.ident.clone());
                 walk(&p.tree, prefix, public, out);
                 prefix.pop();
             }
             syn::UseTree::Name(n) => out.push(UseLeaf {
-                module: use_key(prefix),
+                module: key(prefix),
+                path: prefix.clone(),
                 name: Some(n.ident.clone()),
                 alias: None,
                 public,
                 span: n.ident.span(),
             }),
             syn::UseTree::Rename(r) => out.push(UseLeaf {
-                module: use_key(prefix),
+                module: key(prefix),
+                path: prefix.clone(),
                 name: Some(r.ident.clone()),
                 alias: Some(r.rename.clone()),
                 public,
                 span: r.ident.span(),
             }),
             syn::UseTree::Glob(g) => out.push(UseLeaf {
-                module: use_key(prefix),
+                module: key(prefix),
+                path: prefix.clone(),
                 name: None,
                 alias: None,
                 public,

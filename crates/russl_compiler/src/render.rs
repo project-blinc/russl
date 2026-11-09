@@ -33,6 +33,22 @@ pub fn render(diagnostics: &[Diagnostic], file: &str, source: &str, color: bool)
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Render a program's diagnostics, each against the file it came from.
+pub fn render_program(diagnostics: &[Diagnostic], program: &crate::Program, color: bool) -> String {
+    diagnostics
+        .iter()
+        .map(|d| {
+            let file = program.file_of(d.span);
+            render(
+                std::slice::from_ref(d),
+                &file.path.display().to_string(),
+                &file.text,
+                color,
+            )
+        })
+        .collect()
+}
+
 /// The byte offset of a line (from 1) and column (in characters, from 0).
 fn offset(source: &str, at: proc_macro2::LineColumn) -> usize {
     let line_start: usize = source

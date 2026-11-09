@@ -102,6 +102,27 @@ error: `Vec4::new` needs 4 components, found 3
   |             ^^^^^^^^^^^^^^^^^^^
 ```
 
+### Shader files
+
+Shaders can also live in `.russl` files, compiled from `build.rs` by `russl_build` or checked by
+the `russl` command. A directory is a module tree, laid out as Rust lays out modules:
+`shaders/shapes/ring.russl` (or `shaders/shapes/ring/mod.russl`) is `crate::shapes::ring`, and a
+file imports others with `use crate::...`, `use super::...` or `use self::...`.
+
+```rust
+// build.rs
+fn main() {
+    let card = russl_build::compile("shaders/card.russl").unwrap_or_else(|e| panic!("{e}"));
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    std::fs::write(out.join("card.wgsl"), &card.wgsl).unwrap();
+}
+```
+
+```sh
+russl check shaders/card.russl --deny-warnings   # what CI runs
+russl emit shaders/card.russl msl                # or wgsl, hlsl, glsl, spirv
+```
+
 ## Design
 
 - **Rust syntax**: `fn`, `struct`, `const`, `let`, `if`/`else`, `match`, `for` over ranges,
@@ -132,8 +153,8 @@ specialisation. Blinc checks that pipeline against its own, pixel for pixel.
 | `russl` | the facade: re-exports the macro and the small runtime types |
 | `russl_compiler` | the compiler, shared by everything else; no GPU dependency |
 | `russl_macros` | the `russl!` proc macro |
-| `russl_build` | compiles shader files from `build.rs`, for libraries spanning files and crates |
-| `russl_cli` | `russl check` and `russl emit`, for CI and for reading what a macro produced |
+| `russl_build` | compiles shader files and what they import from `build.rs` |
+| `russl_cli` | `russl check` and `russl emit` over shader files, for CI and for reading the output |
 
 naga is pinned to the version [Blinc](https://github.com/project-blinc/Blinc)'s wgpu uses and moves
 with it.
