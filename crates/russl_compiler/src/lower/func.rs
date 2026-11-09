@@ -853,6 +853,15 @@ impl FnLower<'_, '_> {
                     span,
                 )
             }
+            ExprKind::ExtBuiltin(i, args) => {
+                let vals: Vec<_> = args.iter().map(|&a| self.value(a)).collect();
+                let builtins = self.l.builtins;
+                let mut append = |e: E| self.append(e, span);
+                let mut emit = crate::extension::Emit {
+                    append: &mut append,
+                };
+                (builtins[i as usize].lower)(&mut emit, &vals)
+            }
             ExprKind::Member(..) | ExprKind::GenericCall(..) | ExprKind::Error => {
                 unreachable!("resolved or reported before lowering")
             }

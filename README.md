@@ -123,6 +123,41 @@ russl check shaders/card.russl --deny-warnings   # what CI runs
 russl emit shaders/card.russl msl                # or wgsl, hlsl, glsl, spirv
 ```
 
+### Extensions
+
+A framework adds to russl without changing it, through `russl_compiler::Extension`:
+
+- a **prelude**, a library module whose public items every module of its shaders sees;
+- **extern functions**: a shader declares `extern { fn aux(i: u32) -> Vec4; }` and the
+  extension defines it, so one shader links against a per-backend or per-tier implementation;
+- **builtins** it lowers to naga itself, for what russl source cannot say;
+- **rules** over the checked program: its bindings, entry points and pipeline constants.
+
+Its shader macro is `russl_expand` with that extension, two functions long:
+
+```rust
+#[proc_macro]
+pub fn my_shader(input: TokenStream) -> TokenStream {
+    expander().expand(input.into()).into()
+}
+
+#[doc(hidden)]
+#[proc_macro]
+pub fn __my_continue(input: TokenStream) -> TokenStream {
+    expander().resume(input.into()).into()
+}
+
+fn expander() -> russl_expand::Expander<'static> {
+    russl_expand::Expander {
+        continuation: quote::quote! { ::my_macros::__my_continue },
+        extension: &MyExtension,
+    }
+}
+```
+
+Modules written with `russl!` and with a framework's macro import each other; a program
+compiles with its root's extension. `russl_build::compile_ext` takes one too.
+
 ## Design
 
 - **Rust syntax**: `fn`, `struct`, `const`, `let`, `if`/`else`, `match`, `for` over ranges,
@@ -144,7 +179,7 @@ russl emit shaders/card.russl msl                # or wgsl, hlsl, glsl, spirv
   functions, types and bindings by path, across files and crates, and only what an entry point
   reaches is emitted. Inspired by the export, import and linking of Heaps' HXSL.
 - **Errors at your token**: never a line number in generated WGSL.
-- **Extensions**: a framework adds its own externs, preludes and binding rules without changing
+- **Extensions**: a framework adds its own prelude, externs, builtins and rules without changing
   the core.
 
 Not goals: compiling arbitrary Rust (that is [rust-gpu](https://github.com/Rust-GPU/rust-gpu)),
@@ -160,6 +195,7 @@ specialisation. Blinc checks that pipeline against its own, pixel for pixel.
 | `russl` | the facade: re-exports the macro and the small runtime types |
 | `russl_compiler` | the compiler, shared by everything else; no GPU dependency |
 | `russl_macros` | the `russl!` proc macro |
+| `russl_expand` | the expansion behind `russl!`, for a framework's own macro with its extension |
 | `russl_build` | compiles shader files and what they import from `build.rs` |
 | `russl_cli` | `russl check` and `russl emit` over shader files, for CI and for reading the output |
 

@@ -663,6 +663,9 @@ impl Builder<'_, '_> {
             if let Some(def) = builtins::function(&name) {
                 return self.push(ExprKind::Builtin(def.builtin, args), error, span);
             }
+            if let Some(i) = self.f.ext_names.iter().position(|n| *n == name) {
+                return self.push(ExprKind::ExtBuiltin(i as u32, args), error, span);
+            }
             if let Some(op) = builtins::texture_function(&name) {
                 return self.push(
                     ExprKind::Builtin(builtins::Builtin::Texture(op), args),

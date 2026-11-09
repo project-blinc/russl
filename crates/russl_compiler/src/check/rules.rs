@@ -220,13 +220,7 @@ impl Checker<'_> {
 
     /// The root's globals and those its entry points reach, which are the ones emitted.
     fn bindings(&mut self, reachable: &std::collections::HashSet<FnId>) {
-        let emitted: std::collections::HashSet<usize> = self
-            .fn_globals
-            .iter()
-            .filter(|(f, _)| reachable.contains(f))
-            .map(|(_, g)| g.index())
-            .chain((0..self.module.globals.len()).filter(|&g| self.module.globals[g].module == 0))
-            .collect();
+        let emitted = self.emitted(reachable);
         let mut seen: HashMap<(u32, u32), Symbol> = HashMap::new();
         for g in 0..self.module.globals.len() {
             if !emitted.contains(&g) {

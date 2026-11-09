@@ -32,6 +32,7 @@ pub struct Lower<'a> {
     names: &'a Interner,
     spans: &'a Spans,
     sink: &'a mut Sink,
+    pub builtins: &'a [crate::extension::Builtin],
 }
 
 pub fn module(
@@ -41,6 +42,7 @@ pub fn module(
     names: &Interner,
     spans: &Spans,
     sink: &mut Sink,
+    builtins: &[crate::extension::Builtin],
 ) -> naga::Module {
     let mut l = Lower {
         module: naga::Module::default(),
@@ -55,6 +57,7 @@ pub fn module(
         names,
         spans,
         sink,
+        builtins,
     };
     // The root module's own constants and globals, in source order; an imported one is lowered
     // when something reached refers to it.

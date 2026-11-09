@@ -116,6 +116,25 @@ impl Checker<'_> {
             ExprKind::Call(f, args) => self.call(e, f, &args),
             ExprKind::GenericCall(f, generics, args) => self.instance_call(e, f, &generics, &args),
             ExprKind::Builtin(b, args) => self.builtin(e, b, &args),
+            ExprKind::ExtBuiltin(i, args) => {
+                let (params, ret) = self.module.ext_builtins[i as usize].clone();
+                if args.len() != params.len() {
+                    self.error_at(
+                        e,
+                        format!(
+                            "this builtin takes {} arguments, {} given",
+                            params.len(),
+                            args.len()
+                        ),
+                    );
+                    error
+                } else {
+                    for (&a, &p) in args.iter().zip(&params) {
+                        self.check(a, Some(p));
+                    }
+                    ret
+                }
+            }
             ExprKind::Construct(parts) => self.construct(e, preset, &parts),
             ExprKind::Splat(a) => match self.types.get(preset) {
                 Type::Vector(_, s) => {

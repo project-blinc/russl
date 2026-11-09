@@ -255,6 +255,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "russl_expand"
+version = "0.1.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "russl_compiler",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "russl_fixture_blinc_sdf"
 version = "0.0.0"
 dependencies = [
@@ -279,13 +289,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "russl_macros"
-version = "0.1.1"
+name = "russl_fixture_toy_app"
+version = "0.0.0"
+dependencies = [
+ "naga",
+ "russl",
+ "russl_fixture_toy_macro",
+]
+
+[[package]]
+name = "russl_fixture_toy_macro"
+version = "0.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
  "russl_compiler",
- "syn 2.0.119",
+ "russl_expand",
+]
+
+[[package]]
+name = "russl_macros"
+version = "0.1.1"
+dependencies = [
+ "quote",
+ "russl_compiler",
+ "russl_expand",
 ]
 
 [[package]]

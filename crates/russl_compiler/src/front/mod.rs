@@ -49,6 +49,8 @@ pub struct Front<'a> {
     /// While a generic function's instance is built: its type and const parameters' values.
     generic_types: HashMap<String, TypeId>,
     generic_consts: HashMap<String, (i128, TypeId)>,
+    /// The extension's builtins by name, in `hir::Module::ext_builtins` order.
+    ext_names: Vec<String>,
 }
 
 /// Build the resolved IR of a program. `sources[0]` is the module being compiled; the rest are
@@ -59,6 +61,7 @@ pub fn program(
     types: &mut Types,
     spans: &mut Spans,
     sink: &mut Sink,
+    builtins: &[crate::extension::Builtin],
 ) -> (hir::Module, Generics) {
     let n = sources.len();
     let mut f = Front {
@@ -72,6 +75,7 @@ pub fn program(
         const_src: Vec::new(),
         generic_types: HashMap::new(),
         generic_consts: HashMap::new(),
+        ext_names: builtins.iter().map(|b| b.name.clone()).collect(),
     };
     let mut m = hir::Module::default();
     let mut templates = Vec::new();
@@ -163,6 +167,26 @@ pub fn program(
                 m.structs.push(st);
             }
         }
+    }
+    // The extension's builtins, typed as the root module reads type names.
+    f.current = 0;
+    for b in builtins {
+        let mut ty = |text: &str| match syn::parse_str::<syn::Type>(text) {
+            Ok(t) => f.ty(&t),
+            Err(e) => {
+                f.sink.error(
+                    proc_macro2::Span::call_site(),
+                    format!(
+                        "the extension's builtin `{}` has a type `{text}` that does not parse: {e}",
+                        b.name
+                    ),
+                );
+                f.types.error
+            }
+        };
+        let params = b.params.iter().map(|p| ty(p)).collect();
+        let ret = ty(&b.ret);
+        m.ext_builtins.push((params, ret));
     }
     for (mi, src) in sources.iter().enumerate() {
         f.current = mi;

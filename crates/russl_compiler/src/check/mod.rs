@@ -20,6 +20,8 @@ pub struct Analysis {
     pub order: Vec<FnId>,
     /// Functions the root module's entry points reach.
     pub reachable: HashSet<FnId>,
+    /// The globals the program emits: the root's and those its entry points reach.
+    pub emitted: Vec<GlobalId>,
 }
 
 /// Which body is being checked.
@@ -123,7 +125,17 @@ pub fn module(
     let order = c.order();
     let reachable = c.reachable();
     c.rules(&reachable);
-    Analysis { order, reachable }
+    let mut emitted: Vec<GlobalId> = c
+        .emitted(&reachable)
+        .into_iter()
+        .map(|g| GlobalId(g as u32))
+        .collect();
+    emitted.sort();
+    Analysis {
+        order,
+        reachable,
+        emitted,
+    }
 }
 
 impl Checker<'_> {
@@ -219,6 +231,16 @@ impl Checker<'_> {
                 );
             }
         }
+    }
+
+    /// The globals emitted: the root's, and those reachable functions use.
+    fn emitted(&self, reachable: &HashSet<FnId>) -> HashSet<usize> {
+        self.fn_globals
+            .iter()
+            .filter(|(f, _)| reachable.contains(f))
+            .map(|(_, g)| g.index())
+            .chain((0..self.module.globals.len()).filter(|&g| self.module.globals[g].module == 0))
+            .collect()
     }
 
     /// Functions reachable from the root module's entry points.

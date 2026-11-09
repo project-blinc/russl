@@ -88,6 +88,14 @@ impl Program {
         crate::compile_program_with(&self.modules, constants)
     }
 
+    pub fn compile_ext(
+        &self,
+        constants: &[Constant],
+        ext: &dyn crate::Extension,
+    ) -> Result<Artifacts, Vec<Diagnostic>> {
+        crate::compile_program_ext(&self.modules, constants, ext)
+    }
+
     /// The file a diagnostic's span lies in; the root when the span names no file, as for
     /// errors about the whole program.
     pub fn file_of(&self, span: Span) -> &SourceFile {

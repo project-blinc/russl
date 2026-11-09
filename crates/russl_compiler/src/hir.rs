@@ -29,6 +29,8 @@ pub struct Module {
     pub consts: Vec<Const>,
     pub globals: Vec<Global>,
     pub functions: Vec<Function>,
+    /// The extension's builtins: parameter types and result type, by index.
+    pub ext_builtins: Vec<(Vec<TypeId>, TypeId)>,
 }
 
 pub struct Struct {
@@ -241,6 +243,8 @@ pub enum ExprKind {
     /// like a `Call` of a generic function, into a call of the instance.
     GenericCall(FnId, Vec<GenericArg>, Vec<ExprId>),
     Builtin(crate::builtins::Builtin, Vec<ExprId>),
+    /// A builtin the extension lowers, by its index in `Module::ext_builtins`.
+    ExtBuiltin(u32, Vec<ExprId>),
     /// A vector, matrix, array or struct built from parts; the type says which.
     Construct(Vec<ExprId>),
     /// A vector with one value in every component.

@@ -79,6 +79,7 @@ pub struct Generics {
     scopes: Vec<HashMap<Symbol, Item>>,
     public: Vec<HashSet<Symbol>>,
     const_src: Vec<Option<(syn::Expr, usize)>>,
+    ext_names: Vec<String>,
     pub templates: Vec<Template>,
 }
 
@@ -156,6 +157,7 @@ impl Front<'_> {
             scopes: self.scopes,
             public: self.public,
             const_src: self.const_src,
+            ext_names: self.ext_names,
             templates,
         }
     }
@@ -265,12 +267,14 @@ impl Generics {
             const_src: std::mem::take(&mut self.const_src),
             generic_types,
             generic_consts,
+            ext_names: std::mem::take(&mut self.ext_names),
         };
         let mut built = f.function(&item);
         built.name = name;
         self.scopes = f.scopes;
         self.public = f.public;
         self.const_src = f.const_src;
+        self.ext_names = f.ext_names;
         built
     }
 

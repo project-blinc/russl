@@ -13,6 +13,7 @@ authors = ["Damilare Akinlaja <dreakinlaja@gmail.com>"]
 [workspace.dependencies]
 russl_compiler = { path = "crates/russl_compiler", version = "0.1.1" }
 russl_macros = { path = "crates/russl_macros", version = "0.1.1" }
+russl_expand = { path = "crates/russl_expand", version = "0.1.1" }
 russl = { path = "crates/russl", version = "0.1.1" }
 # The naga minor version Blinc's wgpu uses; bumped together.
 naga = { version = "~26.0", features = ["wgsl-in", "wgsl-out", "msl-out", "hlsl-out", "spv-out", "glsl-out"] }

@@ -10,6 +10,7 @@
 mod builtins;
 mod check;
 mod diag;
+mod extension;
 mod files;
 mod front;
 mod hir;
@@ -21,6 +22,10 @@ mod targets;
 mod types;
 
 pub use diag::{Diagnostic, Severity};
+pub use extension::{
+    BindingKind, BindingView, Builtin, ConstView, Emit, EntryView, Extension, NoExtension,
+    ProgramView,
+};
 pub use files::{Program, SourceFile};
 #[cfg(feature = "ariadne")]
 pub use render::{render, render_program};
@@ -119,28 +124,60 @@ pub fn compile_program_with(
     modules: &[Module],
     constants: &[Constant],
 ) -> Result<Artifacts, Vec<Diagnostic>> {
-    let mut files = Vec::with_capacity(modules.len());
+    compile_program_ext(modules, constants, &NoExtension)
+}
+
+/// Compile a program with a framework's [`Extension`]: its prelude seen by every module, its
+/// extern functions linked, its builtins, and its rules over the checked program.
+pub fn compile_program_ext(
+    modules: &[Module],
+    constants: &[Constant],
+    ext: &dyn Extension,
+) -> Result<Artifacts, Vec<Diagnostic>> {
+    let mut sink = diag::Sink::default();
+    let mut files = Vec::with_capacity(modules.len() + 1);
+    let mut imports: Vec<Vec<(String, usize)>> = Vec::with_capacity(modules.len() + 1);
     for m in modules {
-        files.push(
-            syn::parse2::<syn::File>(m.source.clone())
-                .map_err(|e| vec![Diagnostic::error(e.span(), e.to_string())])?,
-        );
+        let mut file = syn::parse2::<syn::File>(m.source.clone())
+            .map_err(|e| vec![Diagnostic::error(e.span(), e.to_string())])?;
+        extension::link(&mut file, ext, &mut sink);
+        files.push(file);
+        imports.push(m.imports.clone());
+    }
+    if let Some(prelude) = ext.prelude() {
+        let mut file = syn::parse2::<syn::File>(prelude).map_err(|e| {
+            vec![Diagnostic::error(
+                e.span(),
+                format!("the prelude of the extension `{}`: {e}", ext.name()),
+            )]
+        })?;
+        extension::link(&mut file, ext, &mut sink);
+        let at = files.len();
+        let glob: syn::Item =
+            syn::parse_str(&format!("use {}::*;", extension::PRELUDE)).expect("a use item");
+        for (f, i) in files.iter_mut().zip(&mut imports) {
+            f.items.insert(0, glob.clone());
+            i.push((extension::PRELUDE.to_string(), at));
+        }
+        files.push(file);
+        imports.push(Vec::new());
+    }
+    if sink.has_errors() {
+        return Err(sink.items);
     }
     let sources: Vec<front::Source<'_>> = files
         .iter()
-        .zip(modules)
-        .map(|(file, m)| front::Source {
-            file,
-            imports: &m.imports,
-        })
+        .zip(&imports)
+        .map(|(file, imports)| front::Source { file, imports })
         .collect();
     let mut names = intern::Interner::default();
     let mut types = types::Types::default();
     let mut spans = diag::Spans::default();
-    let mut sink = diag::Sink::default();
+    let builtins = ext.builtins();
 
-    let (mut module, mut generics) =
-        front::program(&sources, &mut names, &mut types, &mut spans, &mut sink);
+    let (mut module, mut generics) = front::program(
+        &sources, &mut names, &mut types, &mut spans, &mut sink, &builtins,
+    );
     if sink.has_errors() {
         return Err(sink.items);
     }
@@ -152,6 +189,11 @@ pub fn compile_program_with(
         &mut sink,
         &mut generics,
     );
+    if sink.has_errors() {
+        return Err(sink.items);
+    }
+    let view = extension::view(&module, &analysis, &types, &names, &spans);
+    ext.check(&view, &mut sink.items);
     if sink.has_errors() {
         return Err(sink.items);
     }
@@ -179,7 +221,9 @@ pub fn compile_program_with(
             library: true,
         });
     }
-    let naga_module = lower::module(&module, &analysis, &types, &names, &spans, &mut sink);
+    let naga_module = lower::module(
+        &module, &analysis, &types, &names, &spans, &mut sink, &builtins,
+    );
     if sink.has_errors() {
         return Err(sink.items);
     }

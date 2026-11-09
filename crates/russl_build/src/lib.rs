@@ -8,7 +8,9 @@
 
 use std::path::Path;
 
-pub use russl_compiler::{Artifacts, ConstValue, Constant, Diagnostic, Program, Severity};
+pub use russl_compiler::{
+    Artifacts, ConstValue, Constant, Diagnostic, Extension, NoExtension, Program, Severity,
+};
 
 /// Compile `root` and what it imports, with the module tree rooted at `root`'s directory.
 /// Tells Cargo to rerun the build script when any of the files changes.
@@ -29,6 +31,17 @@ pub fn compile_with(
     root: impl AsRef<Path>,
     constants: &[Constant],
 ) -> Result<Artifacts, String> {
+    compile_ext(dir, root, constants, &russl_compiler::NoExtension)
+}
+
+/// As [`compile_with`], with a framework's [`Extension`]: its prelude, externs, builtins and
+/// rules.
+pub fn compile_ext(
+    dir: impl AsRef<Path>,
+    root: impl AsRef<Path>,
+    constants: &[Constant],
+    ext: &dyn Extension,
+) -> Result<Artifacts, String> {
     let (dir, root) = (dir.as_ref(), root.as_ref());
     // The tree too, so a file an import is waiting for reruns the build when it appears.
     println!("cargo:rerun-if-changed={}", dir.display());
@@ -44,7 +57,7 @@ pub fn compile_with(
             false,
         ));
     }
-    match program.compile_with(constants) {
+    match program.compile_ext(constants, ext) {
         Ok(artifacts) => {
             for w in &artifacts.warnings {
                 let at = w.span.start();

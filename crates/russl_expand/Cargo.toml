@@ -1,0 +1,18 @@
+[package]
+name = "russl_expand"
+description = "The expansion behind russl!, for a framework's own shader macro with its extension"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "../../README.md"
+keywords = ["shader", "wgsl", "macro"]
+categories = ["graphics", "rendering", "compilers"]
+
+[dependencies]
+russl_compiler.workspace = true
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
