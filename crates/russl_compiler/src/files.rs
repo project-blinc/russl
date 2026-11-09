@@ -59,7 +59,7 @@ impl Program {
                 }
                 let Some((file, text)) = find(dir, &target) else {
                     // Relative to the tree, as a reader of the `use` item sees it.
-                    let base = PathBuf::from(target.join("/"));
+                    let base: PathBuf = target.iter().collect();
                     diagnostics.push(Diagnostic::error(
                         span,
                         format!(
@@ -172,7 +172,7 @@ fn resolve(current: &[String], key: &str) -> Result<Vec<String>, String> {
 
 /// The file of module `path`, and its text.
 fn find(dir: &Path, path: &[String]) -> Option<(PathBuf, String)> {
-    let base = dir.join(path.join("/"));
+    let base = dir.join(path.iter().collect::<PathBuf>());
     [base.with_extension("russl"), base.join("mod.russl")]
         .into_iter()
         .find_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
