@@ -103,6 +103,9 @@ impl Checker<'_> {
             }
             ExprKind::Global(g) => {
                 self.used_globals.insert(g);
+                if let super::Target::Fn(f) = self.target {
+                    self.fn_globals.push((f, g));
+                }
                 self.module.globals[g.index()].ty
             }
             ExprKind::Unary(op, a) => self.unary(e, op, a),

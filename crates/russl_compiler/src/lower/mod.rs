@@ -25,7 +25,7 @@ pub struct Lower<'a> {
     tracker: naga::proc::ExpressionKindTracker,
     types: HashMap<TypeId, Handle<naga::Type>>,
     consts: HashMap<ConstId, ConstRef>,
-    globals: Vec<Option<Handle<naga::GlobalVariable>>>,
+    globals: HashMap<hir::GlobalId, Handle<naga::GlobalVariable>>,
     fns: HashMap<FnId, Handle<naga::Function>>,
     hir: &'a hir::Module,
     ty: &'a Types,
@@ -48,7 +48,7 @@ pub fn module(
         tracker: naga::proc::ExpressionKindTracker::new(),
         types: HashMap::new(),
         consts: HashMap::new(),
-        globals: Vec::new(),
+        globals: HashMap::new(),
         fns: HashMap::new(),
         hir,
         ty,
@@ -56,14 +56,23 @@ pub fn module(
         spans,
         sink,
     };
-    for i in 0..hir.consts.len() {
-        l.constant(ConstId(i as u32));
+    // The root module's own constants and globals, in source order; an imported one is lowered
+    // when something reached refers to it.
+    for (i, k) in hir.consts.iter().enumerate() {
+        if k.module == 0 {
+            l.constant(ConstId(i as u32));
+        }
     }
-    for g in &hir.globals {
-        let handle = l.global(g);
-        l.globals.push(handle);
+    for (i, g) in hir.globals.iter().enumerate() {
+        if g.module == 0 {
+            l.global(hir::GlobalId(i as u32));
+        }
     }
-    for &f in &analysis.order {
+    for &f in analysis
+        .order
+        .iter()
+        .filter(|f| analysis.reachable.contains(f))
+    {
         let function = func::function(&mut l, f);
         let span = naga_span(hir.functions[f.index()].span);
         let handle = l.module.functions.append(function, span);
@@ -71,6 +80,9 @@ pub fn module(
     }
     for (i, f) in hir.functions.iter().enumerate() {
         let Some(stage) = f.stage else { continue };
+        if f.module != 0 {
+            continue;
+        }
         let function = func::function(&mut l, FnId(i as u32));
         let (stage, workgroup_size) = match stage {
             hir::Stage::Vertex => (naga::ShaderStage::Vertex, [0; 3]),
@@ -340,7 +352,12 @@ impl Lower<'_> {
         }
     }
 
-    fn global(&mut self, g: &hir::Global) -> Option<Handle<naga::GlobalVariable>> {
+    /// A global, lowered the first time it is needed.
+    pub fn global(&mut self, id: hir::GlobalId) -> Handle<naga::GlobalVariable> {
+        if let Some(&h) = self.globals.get(&id) {
+            return h;
+        }
+        let g = &self.hir.globals[id.index()];
         let ty = self.ty(g.ty);
         let space = match g.space {
             hir::Space::Uniform => naga::AddressSpace::Uniform,
@@ -369,7 +386,9 @@ impl Lower<'_> {
             ty,
             init,
         };
-        Some(self.module.global_variables.append(var, naga_span(g.span)))
+        let h = self.module.global_variables.append(var, naga_span(g.span));
+        self.globals.insert(id, h);
+        h
     }
 }
 

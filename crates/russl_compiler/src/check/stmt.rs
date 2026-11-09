@@ -10,7 +10,7 @@ impl Checker<'_> {
         let mut ended = false;
         let mut warned = false;
         for stmt in block {
-            if ended && !warned {
+            if ended && !warned && self.root {
                 self.sink
                     .warning(self.spans.get(stmt.span), "unreachable statement");
                 warned = true;

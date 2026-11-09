@@ -14,6 +14,10 @@ entry-point inputs and outputs and resource bindings, and warns on Rust's naming
 unused bindings. The checked module is lowered straight to naga's IR; errors point at your tokens,
 and the CLI renders them with source snippets.
 
+Modules import each other with `use`, within a crate and across crates: a module without entry
+points is a library, `pub` items are its interface, and a shader carries only what its entry
+points reach.
+
 ## Design
 
 - **Rust syntax**: `fn`, `struct`, `const`, `let`, `if`/`else`, `match`, `for` over ranges,

@@ -32,6 +32,8 @@ pub struct Module {
 }
 
 pub struct Struct {
+    /// Index of the source module: 0 is the module being compiled.
+    pub module: u32,
     pub name: Symbol,
     pub ty: TypeId,
     pub fields: Vec<Field>,
@@ -69,6 +71,8 @@ pub enum Builtin {
 }
 
 pub struct Const {
+    /// Index of the source module: 0 is the module being compiled.
+    pub module: u32,
     pub name: Symbol,
     pub ty: TypeId,
     /// `None` for a pipeline constant with no default.
@@ -91,6 +95,8 @@ pub enum Space {
 }
 
 pub struct Global {
+    /// Index of the source module: 0 is the module being compiled.
+    pub module: u32,
     pub name: Symbol,
     pub space: Space,
     pub ty: TypeId,
@@ -107,6 +113,8 @@ pub enum Stage {
 }
 
 pub struct Function {
+    /// Index of the source module: 0 is the module being compiled.
+    pub module: u32,
     pub name: Symbol,
     pub stage: Option<Stage>,
     pub params: Vec<Param>,

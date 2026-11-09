@@ -15,6 +15,8 @@ use std::collections::HashSet;
 pub struct Analysis {
     /// Functions that are not entry points, callees before callers.
     pub order: Vec<FnId>,
+    /// Functions the root module's entry points reach.
+    pub reachable: HashSet<FnId>,
 }
 
 /// Which body is being checked.
@@ -36,6 +38,11 @@ pub struct Checker<'a> {
     calls: Vec<(FnId, FnId)>,
     used_consts: HashSet<ConstId>,
     used_globals: HashSet<GlobalId>,
+    /// Which globals each function reads or writes, for the bindings a program really uses.
+    fn_globals: Vec<(FnId, GlobalId)>,
+    /// Whether the body being checked is the root module's; only its warnings are reported,
+    /// since an imported module reports its own when it is compiled.
+    root: bool,
     loop_depth: u32,
     ret: Option<TypeId>,
 }
@@ -58,12 +65,15 @@ pub fn module(
         calls: Vec::new(),
         used_consts: HashSet::new(),
         used_globals: HashSet::new(),
+        fn_globals: Vec::new(),
+        root: true,
         loop_depth: 0,
         ret: None,
     };
     for i in 0..c.module.consts.len() {
         let id = ConstId(i as u32);
         c.target = Target::Const(id);
+        c.root = c.module.consts[i].module == 0;
         let ty = c.module.consts[i].ty;
         if let Some(value) = c.module.consts[i].value.as_ref().and_then(|b| b.value) {
             c.check(value, Some(ty));
@@ -73,6 +83,7 @@ pub fn module(
     for i in 0..c.module.globals.len() {
         let id = GlobalId(i as u32);
         c.target = Target::Global(id);
+        c.root = c.module.globals[i].module == 0;
         let ty = c.module.globals[i].ty;
         if let Some(value) = c.module.globals[i].init.as_ref().and_then(|b| b.value) {
             c.check(value, Some(ty));
@@ -83,13 +94,15 @@ pub fn module(
         let id = FnId(i as u32);
         c.target = Target::Fn(id);
         c.current = id;
+        c.root = c.module.functions[i].module == 0;
         c.loop_depth = 0;
         c.ret = c.module.functions[i].ret.map(|r| r.0);
         c.function(id);
     }
     let order = c.order();
-    c.rules();
-    Analysis { order }
+    let reachable = c.reachable();
+    c.rules(&reachable);
+    Analysis { order, reachable }
 }
 
 impl Checker<'_> {
@@ -178,13 +191,33 @@ impl Checker<'_> {
             .map(|l| (self.names.get(l.name).to_string(), l.used, l.span))
             .collect();
         for (name, used, span) in locals {
-            if !used && !name.starts_with('_') {
+            if self.root && !used && !name.starts_with('_') {
                 self.sink.warning(
                     self.spans.get(span),
                     format!("unused variable: `{name}`; if this is intentional, prefix it with an underscore: `_{name}`"),
                 );
             }
         }
+    }
+
+    /// Functions reachable from the root module's entry points.
+    fn reachable(&self) -> HashSet<FnId> {
+        let mut seen: HashSet<FnId> = (0..self.module.functions.len())
+            .map(|i| FnId(i as u32))
+            .filter(|f| {
+                let func = &self.module.functions[f.index()];
+                func.module == 0 && func.stage.is_some()
+            })
+            .collect();
+        let mut stack: Vec<FnId> = seen.iter().copied().collect();
+        while let Some(f) = stack.pop() {
+            for &(from, to) in &self.calls {
+                if from == f && seen.insert(to) {
+                    stack.push(to);
+                }
+            }
+        }
+        seen
     }
 
     /// Callees before callers; recursion, which no target supports, is an error.

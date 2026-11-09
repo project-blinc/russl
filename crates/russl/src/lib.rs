@@ -4,3 +4,6 @@
 //! languages to follow, so no shader compiler runs on the user's machine.
 
 pub use russl_macros::russl;
+
+#[doc(hidden)]
+pub use russl_macros::__russl_continue;

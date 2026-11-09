@@ -15,9 +15,9 @@ enum Dir {
 }
 
 impl Checker<'_> {
-    pub(super) fn rules(&mut self) {
+    pub(super) fn rules(&mut self, reachable: &std::collections::HashSet<FnId>) {
         self.entry_points();
-        self.bindings();
+        self.bindings(reachable);
         self.conventions();
         self.unused_items();
     }
@@ -25,6 +25,9 @@ impl Checker<'_> {
     fn entry_points(&mut self) {
         for i in 0..self.module.functions.len() {
             let f = &self.module.functions[i];
+            if f.module != 0 {
+                continue;
+            }
             let Some(stage) = f.stage else {
                 // IO attributes mean nothing outside an entry point.
                 let stray =
@@ -176,9 +179,20 @@ impl Checker<'_> {
         }
     }
 
-    fn bindings(&mut self) {
+    /// The root's globals and those its entry points reach, which are the ones emitted.
+    fn bindings(&mut self, reachable: &std::collections::HashSet<FnId>) {
+        let emitted: std::collections::HashSet<usize> = self
+            .fn_globals
+            .iter()
+            .filter(|(f, _)| reachable.contains(f))
+            .map(|(_, g)| g.index())
+            .chain((0..self.module.globals.len()).filter(|&g| self.module.globals[g].module == 0))
+            .collect();
         let mut seen: HashMap<(u32, u32), Symbol> = HashMap::new();
         for g in 0..self.module.globals.len() {
+            if !emitted.contains(&g) {
+                continue;
+            }
             let global = &self.module.globals[g];
             let (name, space, ty, binding, span) = (
                 global.name,
@@ -264,7 +278,7 @@ impl Checker<'_> {
     /// Rust's naming conventions, as warnings.
     fn conventions(&mut self) {
         let mut warn = Vec::new();
-        for s in &self.module.structs {
+        for s in self.module.structs.iter().filter(|s| s.module == 0) {
             let n = self.names.get(s.name);
             if !is_camel(n) {
                 warn.push((
@@ -282,7 +296,7 @@ impl Checker<'_> {
                 }
             }
         }
-        for k in &self.module.consts {
+        for k in self.module.consts.iter().filter(|k| k.module == 0) {
             let n = self.names.get(k.name);
             if !is_screaming(n) {
                 warn.push((
@@ -291,7 +305,7 @@ impl Checker<'_> {
                 ));
             }
         }
-        for g in &self.module.globals {
+        for g in self.module.globals.iter().filter(|g| g.module == 0) {
             let n = self.names.get(g.name);
             if !is_screaming(n) {
                 warn.push((
@@ -300,7 +314,7 @@ impl Checker<'_> {
                 ));
             }
         }
-        for f in &self.module.functions {
+        for f in self.module.functions.iter().filter(|f| f.module == 0) {
             let n = self.names.get(f.name);
             if !is_snake(n) {
                 warn.push((
@@ -326,13 +340,18 @@ impl Checker<'_> {
     /// Items no entry point reaches. A module without entry points is a library, so nothing in
     /// it is unused.
     fn unused_items(&mut self) {
-        if self.module.functions.iter().all(|f| f.stage.is_none()) {
+        if !self
+            .module
+            .functions
+            .iter()
+            .any(|f| f.module == 0 && f.stage.is_some())
+        {
             return;
         }
         let called: std::collections::HashSet<FnId> = self.calls.iter().map(|c| c.1).collect();
         let mut warn = Vec::new();
         for (i, f) in self.module.functions.iter().enumerate() {
-            if f.stage.is_none() && !called.contains(&FnId(i as u32)) {
+            if f.module == 0 && f.stage.is_none() && !called.contains(&FnId(i as u32)) {
                 warn.push((
                     f.span,
                     format!("function `{}` is never used", self.names.get(f.name)),
@@ -340,7 +359,10 @@ impl Checker<'_> {
             }
         }
         for (i, k) in self.module.consts.iter().enumerate() {
-            if k.pipeline.is_none() && !self.used_consts.contains(&ConstId(i as u32)) {
+            if k.module == 0
+                && k.pipeline.is_none()
+                && !self.used_consts.contains(&ConstId(i as u32))
+            {
                 warn.push((
                     k.span,
                     format!("constant `{}` is never used", self.names.get(k.name)),
@@ -348,7 +370,7 @@ impl Checker<'_> {
             }
         }
         for (i, g) in self.module.globals.iter().enumerate() {
-            if !self.used_globals.contains(&GlobalId(i as u32)) {
+            if g.module == 0 && !self.used_globals.contains(&GlobalId(i as u32)) {
                 warn.push((
                     g.span,
                     format!("static `{}` is never used", self.names.get(g.name)),

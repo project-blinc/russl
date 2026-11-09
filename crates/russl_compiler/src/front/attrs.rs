@@ -145,6 +145,7 @@ impl Parse for WorkgroupSize {
 /// `#[attrs] static NAME: T;` or `#[attrs] const NAME: T;`, which Rust has no item for.
 pub struct Decl {
     pub attrs: Vec<syn::Attribute>,
+    pub vis: syn::Visibility,
     pub is_const: bool,
     pub ident: syn::Ident,
     pub ty: syn::Type,
@@ -153,7 +154,7 @@ pub struct Decl {
 impl Parse for Decl {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let attrs = input.call(syn::Attribute::parse_outer)?;
-        let _: syn::Visibility = input.parse()?;
+        let vis: syn::Visibility = input.parse()?;
         let is_const = if input.peek(syn::Token![const]) {
             let _: syn::Token![const] = input.parse()?;
             true
@@ -167,6 +168,7 @@ impl Parse for Decl {
         let _: syn::Token![;] = input.parse()?;
         Ok(Decl {
             attrs,
+            vis,
             is_const,
             ident,
             ty,

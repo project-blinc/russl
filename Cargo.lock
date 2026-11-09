@@ -234,12 +234,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "russl_fixture_consumer"
+version = "0.0.0"
+dependencies = [
+ "naga",
+ "russl",
+ "russl_fixture_shapes",
+]
+
+[[package]]
+name = "russl_fixture_shapes"
+version = "0.0.0"
+dependencies = [
+ "russl",
+]
+
+[[package]]
 name = "russl_macros"
 version = "0.0.1"
 dependencies = [
  "proc-macro2",
  "quote",
  "russl_compiler",
+ "syn 2.0.119",
 ]
 
 [[package]]

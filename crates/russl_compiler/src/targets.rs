@@ -92,5 +92,6 @@ pub fn emit(module: &naga::Module, info: &naga::valid::ModuleInfo) -> Result<Art
         spirv,
         glsl,
         warnings: Vec::new(),
+        library: false,
     })
 }

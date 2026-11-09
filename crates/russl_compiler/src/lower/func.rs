@@ -543,7 +543,7 @@ impl FnLower<'_, '_> {
                 if global.space == hir::Space::Handle {
                     return None;
                 }
-                let h = self.l.globals[g.index()]?;
+                let h = self.l.global(*g);
                 Some(self.append(E::GlobalVariable(h), span))
             }
             ExprKind::Field(base, i) => {
@@ -591,7 +591,7 @@ impl FnLower<'_, '_> {
                 ConstRef::Override(h) => self.append(E::Override(h), span),
             },
             ExprKind::Global(g) => {
-                let h = self.l.globals[g.index()].expect("lowered");
+                let h = self.l.global(g);
                 self.append(E::GlobalVariable(h), span)
             }
             ExprKind::Unary(op, a) => {

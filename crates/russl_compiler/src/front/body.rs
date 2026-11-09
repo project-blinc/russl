@@ -464,7 +464,7 @@ impl Builder<'_, '_> {
             if let Some(local) = self.lookup(sym) {
                 return self.push(ExprKind::Local(local), error, span);
             }
-            return match self.f.items.get(&sym).copied() {
+            return match self.f.scope().get(&sym).copied() {
                 Some(Item::Const(c)) => self.push(ExprKind::Const(c), error, span),
                 Some(Item::Global(g)) => self.push(ExprKind::Global(g), error, span),
                 Some(Item::Fn(_)) => self.error(span, format!("`{ident}` is a function: call it")),
@@ -551,7 +551,7 @@ impl Builder<'_, '_> {
         if let Some(ident) = p.path.get_ident() {
             let name = ident.to_string();
             let sym = self.f.names.intern(&name);
-            if let Some(Item::Fn(id)) = self.f.items.get(&sym).copied() {
+            if let Some(Item::Fn(id)) = self.f.scope().get(&sym).copied() {
                 return self.push(ExprKind::Call(id, args), error, span);
             }
             if let Some(def) = builtins::function(&name) {
@@ -631,7 +631,7 @@ impl Builder<'_, '_> {
             return self.error(s.path.span(), "expected a struct name");
         };
         let sym = self.f.names.intern(&ident.to_string());
-        let Some(Item::Struct(id)) = self.f.items.get(&sym).copied() else {
+        let Some(Item::Struct(id)) = self.f.scope().get(&sym).copied() else {
             return self.error(ident.span(), format!("`{ident}` is not a struct"));
         };
         let order: Vec<Symbol> = self.f.types.structs[id.0 as usize]

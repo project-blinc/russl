@@ -39,6 +39,16 @@ pub struct Artifacts {
     /// GLSL ES 3.00 for WebGL2, one source per vertex or fragment entry point.
     pub glsl: Vec<GlslEntry>,
     pub warnings: Vec<Diagnostic>,
+    /// The module has no entry points: a library for other modules to import. It was checked,
+    /// and no target was written.
+    pub library: bool,
+}
+
+/// One module of a program: its source, and for each module path its `use` items name, the
+/// index of that module among the program's modules.
+pub struct Module {
+    pub source: TokenStream,
+    pub imports: Vec<(String, usize)>,
 }
 
 /// One entry point written as GLSL ES.
@@ -57,22 +67,67 @@ pub enum Stage {
     Compute,
 }
 
-/// Compile one module of russl source. On failure, every error and warning found.
+/// Compile one module of russl source that imports nothing.
 pub fn compile(source: TokenStream) -> Result<Artifacts, Vec<Diagnostic>> {
+    compile_program(&[Module {
+        source,
+        imports: Vec::new(),
+    }])
+}
+
+/// The module paths a module's `use` items name, each once: a key (as [`Module::imports`]
+/// expects it) and the path's tokens.
+pub fn use_paths(source: TokenStream) -> Result<Vec<(String, TokenStream)>, Diagnostic> {
     let file: syn::File =
-        syn::parse2(source).map_err(|e| vec![Diagnostic::error(e.span(), e.to_string())])?;
+        syn::parse2(source).map_err(|e| Diagnostic::error(e.span(), e.to_string()))?;
+    Ok(front::use_paths(&file))
+}
+
+/// Compile a program: `modules[0]` is the module being compiled, the others what it imports.
+/// On failure, every error and warning found.
+pub fn compile_program(modules: &[Module]) -> Result<Artifacts, Vec<Diagnostic>> {
+    let mut files = Vec::with_capacity(modules.len());
+    for m in modules {
+        files.push(
+            syn::parse2::<syn::File>(m.source.clone())
+                .map_err(|e| vec![Diagnostic::error(e.span(), e.to_string())])?,
+        );
+    }
+    let sources: Vec<front::Source<'_>> = files
+        .iter()
+        .zip(modules)
+        .map(|(file, m)| front::Source {
+            file,
+            imports: &m.imports,
+        })
+        .collect();
     let mut names = intern::Interner::default();
     let mut types = types::Types::default();
     let mut spans = diag::Spans::default();
     let mut sink = diag::Sink::default();
 
-    let mut module = front::module(&file, &mut names, &mut types, &mut spans, &mut sink);
+    let mut module = front::program(&sources, &mut names, &mut types, &mut spans, &mut sink);
     if sink.has_errors() {
         return Err(sink.items);
     }
     let analysis = check::module(&names, &mut types, &mut module, &spans, &mut sink);
     if sink.has_errors() {
         return Err(sink.items);
+    }
+    if !module
+        .functions
+        .iter()
+        .any(|f| f.module == 0 && f.stage.is_some())
+    {
+        return Ok(Artifacts {
+            wgsl: String::new(),
+            msl: String::new(),
+            hlsl: String::new(),
+            spirv: Vec::new(),
+            glsl: Vec::new(),
+            warnings: sink.items,
+            library: true,
+        });
     }
     let naga_module = lower::module(&module, &analysis, &types, &names, &spans, &mut sink);
     if sink.has_errors() {

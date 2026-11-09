@@ -55,7 +55,7 @@ impl Front<'_> {
                     },
                     _ => {
                         let sym = self.names.intern(&name);
-                        match self.items.get(&sym) {
+                        match self.scope().get(&sym) {
                             Some(Item::Struct(id)) if seg.arguments.is_none() => {
                                 self.types.add(Type::Struct(*id))
                             }
