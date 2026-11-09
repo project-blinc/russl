@@ -22,13 +22,96 @@ A `#[pipeline]` constant is specialised at build time, never at run time: a modu
 `#![specialize(path::to::shader)]` and `const NAME: T = value;` items expands to that shader's
 artifacts with those values.
 
+## Usage
+
+```toml
+[dependencies]
+russl = { git = "https://github.com/project-blinc/russl" }
+```
+
+A `russl!` block is one shader module. One with entry points expands to `WGSL`, `MSL`, `HLSL`,
+`SPIRV` and `GLSL` consts; one without is a library that others `use`.
+
+```rust
+mod sdf {
+    russl::russl! {
+        /// The distance from `p` to a box of half-size `b` with corner radius `r`.
+        pub fn rounded_box(p: Vec2, b: Vec2, r: f32) -> f32 {
+            let q = p.abs() - b + r;
+            q.max(Vec2::ZERO).length() + q.x.max(q.y).min(0.0) - r
+        }
+    }
+}
+
+mod card {
+    russl::russl! {
+        use super::sdf::rounded_box;
+
+        struct Card { size: Vec2, radius: f32, color: Vec4 }
+
+        struct VsOut {
+            #[builtin(position)] pos: Vec4,
+            #[location(0)] local: Vec2,
+        }
+
+        #[group(0)] #[binding(0)] static CARD: Uniform<Card>;
+        #[pipeline] const SOFT_EDGE: bool = true;
+
+        const CORNERS: [Vec2; 6] = [
+            Vec2::new(-1.0, -1.0), Vec2::new(1.0, -1.0), Vec2::new(1.0, 1.0),
+            Vec2::new(-1.0, -1.0), Vec2::new(1.0, 1.0), Vec2::new(-1.0, 1.0),
+        ];
+
+        #[vertex]
+        fn vs(#[builtin(vertex_index)] vi: u32) -> VsOut {
+            let corner = CORNERS[vi];
+            VsOut { pos: Vec4::new(corner, 0.0, 1.0), local: corner * CARD.size * 0.5 }
+        }
+
+        #[fragment]
+        #[location(0)]
+        fn fs(input: VsOut) -> Vec4 {
+            let d = rounded_box(input.local, CARD.size * 0.5, CARD.radius);
+            if d > 1.0 {
+                discard!();
+            }
+            let aa = if SOFT_EDGE { d.fwidth() } else { 0.0001 };
+            let alpha = 1.0 - d.smoothstep(-aa, aa);
+            CARD.color * alpha
+        }
+    }
+}
+
+mod card_hard {
+    russl::russl! {
+        #![specialize(super::card)]
+        const SOFT_EDGE: bool = false;
+    }
+}
+```
+
+`card::WGSL` goes to wgpu or WebGPU as it is, `card::MSL` to Metal, `card::SPIRV` to Vulkan, and
+so on; `card_hard` is the same shader with `SOFT_EDGE` fixed to `false`. A mistake is reported
+by rustc at the token that caused it. Building a `Vec4` from a `Vec2` and one float:
+
+```text
+error: `Vec4::new` needs 4 components, found 3
+ --> src/card.rs:7:13
+  |
+7 |             Vec4::new(local, d)
+  |             ^^^^^^^^^^^^^^^^^^^
+```
+
 ## Design
 
 - **Rust syntax**: `fn`, `struct`, `const`, `let`, `if`/`else`, `match`, `for` over ranges,
-  method-call builtins (`v.dot(w)`, `x.clamp(a, b)`), Rust operators and casts.
+  method-call builtins (`v.dot(w)`, `x.clamp(a, b)`, `x.fwidth()`), texture methods
+  (`atlas.sample_level(sampler, uv, 0.0)`, `t.load(coord, 0)`, `t.dimensions()`), `discard!()`,
+  Rust operators and casts.
 - **Every target, every compile**: WGSL for WebGPU, MSL for Metal, HLSL for Direct3D 12, SPIR-V
   for Vulkan and GLSL ES for WebGL2, all at build time through naga's backends. A platform takes the
-  artifact it needs and never compiles a shader at run time.
+  artifact it needs and never compiles a shader at run time. MSL targets version 2.1; a shader
+  that needs what WebGL2 lacks, such as storage buffers, has no GLSL.
 - **Modules and reuse**: a module without entry points is a library; `use` imports its `pub`
   functions, types and bindings by path, across files and crates, and only what an entry point
   reaches is emitted. Inspired by the export, import and linking of Heaps' HXSL.
@@ -38,6 +121,9 @@ artifacts with those values.
 
 Not goals: compiling arbitrary Rust (that is [rust-gpu](https://github.com/Rust-GPU/rust-gpu)),
 runtime compilation, or features WGSL cannot express.
+
+`fixtures/blinc_sdf` is Blinc's SDF core shader written in russl, with its simple pipeline as a
+specialisation. Blinc checks that pipeline against its own, pixel for pixel.
 
 ## Crates
 
