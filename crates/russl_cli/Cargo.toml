@@ -13,5 +13,5 @@ name = "russl"
 path = "src/main.rs"
 
 [dependencies]
-russl_compiler.workspace = true
+russl_compiler = { workspace = true, features = ["ariadne"] }
 proc-macro2.workspace = true

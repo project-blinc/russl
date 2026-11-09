@@ -9,5 +9,5 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-russl_compiler.workspace = true
+russl_compiler = { workspace = true, features = ["ariadne"] }
 proc-macro2.workspace = true

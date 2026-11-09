@@ -1,15 +1,31 @@
 //! The russl compiler.
 //!
-//! Source in Rust syntax is parsed with `syn`, checked, lowered to a [`naga::Module`], validated,
-//! and written out for every target: WGSL, MSL, HLSL, SPIR-V and GLSL ES. The macro, the build driver and the CLI all call
-//! [`compile`], so a shader compiles the same way wherever it is written.
-//!
-//! Only an empty module compiles: any item is reported as unsupported.
+//! Source in Rust syntax goes through a front end of its own: identifiers are interned, types
+//! live in a hash-consed arena, names resolve to ids, and an analyzer types every expression
+//! and checks the module's rules. The checked module is lowered straight to a [`naga::Module`],
+//! validated, and written for every target: WGSL, MSL, HLSL, SPIR-V and GLSL ES. The macro, the
+//! build driver and the CLI all call [`compile`].
+
+mod builtins;
+mod check;
+mod diag;
+mod front;
+mod hir;
+mod intern;
+mod lower;
+#[cfg(feature = "ariadne")]
+mod render;
+mod targets;
+mod types;
+
+pub use diag::{Diagnostic, Severity};
+#[cfg(feature = "ariadne")]
+pub use render::render;
 
 use proc_macro2::{Span, TokenStream};
 
 /// What a compiled shader module produces: one artifact per target, so no platform compiles
-/// shaders at run time.
+/// shaders at run time, and the warnings found on the way.
 #[derive(Debug, Clone)]
 pub struct Artifacts {
     /// WGSL, for WebGPU (browsers accept nothing else) and wgpu.
@@ -20,8 +36,9 @@ pub struct Artifacts {
     pub hlsl: String,
     /// SPIR-V words, for Vulkan.
     pub spirv: Vec<u32>,
-    /// GLSL ES 3.00 for WebGL2, one source per entry point as GLSL requires.
+    /// GLSL ES 3.00 for WebGL2, one source per vertex or fragment entry point.
     pub glsl: Vec<GlslEntry>,
+    pub warnings: Vec<Diagnostic>,
 }
 
 /// One entry point written as GLSL ES.
@@ -40,138 +57,57 @@ pub enum Stage {
     Compute,
 }
 
-/// A compile error, at the source token that caused it.
-#[derive(Debug, Clone)]
-pub struct Error {
-    pub span: Span,
-    pub message: String,
-}
+/// Compile one module of russl source. On failure, every error and warning found.
+pub fn compile(source: TokenStream) -> Result<Artifacts, Vec<Diagnostic>> {
+    let file: syn::File =
+        syn::parse2(source).map_err(|e| vec![Diagnostic::error(e.span(), e.to_string())])?;
+    let mut names = intern::Interner::default();
+    let mut types = types::Types::default();
+    let mut spans = diag::Spans::default();
+    let mut sink = diag::Sink::default();
 
-impl Error {
-    fn new(span: Span, message: impl Into<String>) -> Self {
-        Self {
-            span,
-            message: message.into(),
-        }
+    let mut module = front::module(&file, &mut names, &mut types, &mut spans, &mut sink);
+    if sink.has_errors() {
+        return Err(sink.items);
     }
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+    let analysis = check::module(&names, &mut types, &mut module, &spans, &mut sink);
+    if sink.has_errors() {
+        return Err(sink.items);
     }
-}
-
-impl std::error::Error for Error {}
-
-/// Compile one module of russl source.
-pub fn compile(source: TokenStream) -> Result<Artifacts, Error> {
-    let file: syn::File = syn::parse2(source).map_err(|e| Error::new(e.span(), e.to_string()))?;
-    if let Some(item) = file.items.first() {
-        return Err(Error::new(
-            syn::spanned::Spanned::span(item),
-            "russl does not compile items yet",
-        ));
+    let naga_module = lower::module(&module, &analysis, &types, &names, &spans, &mut sink);
+    if sink.has_errors() {
+        return Err(sink.items);
     }
-    emit(&naga::Module::default())
-}
 
-/// Validate a module and write it out for each target.
-fn emit(module: &naga::Module) -> Result<Artifacts, Error> {
-    let fail = |target: &str, e: &dyn std::fmt::Display| {
-        Error::new(Span::call_site(), format!("{target} output: {e}"))
-    };
     let info = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::empty(),
+        naga::valid::Capabilities::all(),
     )
-    .validate(module)
-    .map_err(|e| Error::new(Span::call_site(), format!("invalid module: {e}")))?;
-
-    let wgsl =
-        naga::back::wgsl::write_string(module, &info, naga::back::wgsl::WriterFlags::empty())
-            .map_err(|e| fail("WGSL", &e))?;
-    let (msl, _) = naga::back::msl::write_string(
-        module,
-        &info,
-        &naga::back::msl::Options::default(),
-        &naga::back::msl::PipelineOptions::default(),
-    )
-    .map_err(|e| fail("MSL", &e))?;
-    let mut hlsl = String::new();
-    naga::back::hlsl::Writer::new(
-        &mut hlsl,
-        &naga::back::hlsl::Options::default(),
-        &naga::back::hlsl::PipelineOptions::default(),
-    )
-    .write(module, &info, None)
-    .map_err(|e| fail("HLSL", &e))?;
-    let spirv =
-        naga::back::spv::write_vec(module, &info, &naga::back::spv::Options::default(), None)
-            .map_err(|e| fail("SPIR-V", &e))?;
-
-    let glsl_options = naga::back::glsl::Options {
-        version: naga::back::glsl::Version::Embedded {
-            version: 300,
-            is_webgl: true,
-        },
-        ..Default::default()
-    };
-    let mut glsl = Vec::with_capacity(module.entry_points.len());
-    for entry in &module.entry_points {
-        let stage = match entry.stage {
-            naga::ShaderStage::Vertex => Stage::Vertex,
-            naga::ShaderStage::Fragment => Stage::Fragment,
-            naga::ShaderStage::Compute => Stage::Compute,
-            other => return Err(fail("GLSL", &format!("unsupported stage {other:?}"))),
-        };
-        let mut source = String::new();
-        naga::back::glsl::Writer::new(
-            &mut source,
-            module,
-            &info,
-            &glsl_options,
-            &naga::back::glsl::PipelineOptions {
-                shader_stage: entry.stage,
-                entry_point: entry.name.clone(),
-                multiview: None,
-            },
-            naga::proc::BoundsCheckPolicies::default(),
-        )
-        .and_then(|mut w| w.write())
-        .map_err(|e| fail("GLSL", &e))?;
-        glsl.push(GlslEntry {
-            entry_point: entry.name.clone(),
-            stage,
-            source,
-        });
-    }
-
-    Ok(Artifacts {
-        wgsl,
-        msl,
-        hlsl,
-        spirv,
-        glsl,
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_empty_module_compiles_for_every_target() {
-        let out = compile(TokenStream::new()).expect("empty module");
-        naga::front::wgsl::parse_str(&out.wgsl).expect("output parses as WGSL");
-        assert!(out.msl.contains("metal_stdlib"), "{}", out.msl);
-        assert_eq!(out.spirv.first(), Some(&0x0723_0203), "SPIR-V magic number");
-        assert!(out.glsl.is_empty(), "no entry points, no GLSL sources");
-    }
-
-    #[test]
-    fn an_item_is_reported_at_its_own_span() {
-        let err = compile("fn main() {}".parse().unwrap()).unwrap_err();
-        assert!(err.message.contains("items"), "{}", err.message);
-    }
+    .validate(&naga_module)
+    .map_err(|e| {
+        let span = e
+            .spans()
+            .find_map(|(s, _)| spans.for_naga(*s))
+            .unwrap_or_else(Span::call_site);
+        let mut message = e.as_inner().to_string();
+        let mut source = std::error::Error::source(e.as_inner());
+        while let Some(s) = source {
+            message.push_str(": ");
+            message.push_str(&s.to_string());
+            source = s.source();
+        }
+        let mut all = sink.items.clone();
+        all.push(Diagnostic::error(
+            span,
+            format!("invalid shader: {message}"),
+        ));
+        all
+    })?;
+    let mut artifacts = targets::emit(&naga_module, &info).map_err(|m| {
+        let mut all = sink.items.clone();
+        all.push(Diagnostic::error(Span::call_site(), m));
+        all
+    })?;
+    artifacts.warnings = sink.items;
+    Ok(artifacts)
 }

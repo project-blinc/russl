@@ -8,7 +8,11 @@ Rust and WGSL already share most of their syntax. russl closes the gap with a ma
 source is parsed with `syn`, type-checked, lowered to a [naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga)
 module, validated, and emitted as consts.
 
-Only an empty module compiles today: `russl!` reports any item as unsupported.
+russl has its own front end: identifiers are interned, types live in a hash-consed arena, and an
+analyzer types every expression (with WGSL's abstract literals), checks places and mutability,
+entry-point inputs and outputs and resource bindings, and warns on Rust's naming conventions and
+unused bindings. The checked module is lowered straight to naga's IR; errors point at your tokens,
+and the CLI renders them with source snippets.
 
 ## Design
 
