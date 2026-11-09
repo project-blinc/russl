@@ -8,7 +8,42 @@ pub enum Builtin {
     Math(M),
     Any,
     All,
+    /// `dpdx`, `dpdy` and `fwidth`; fragment shaders only.
+    Derivative(naga::DerivativeAxis),
+    Texture(Tex),
 }
+
+/// A texture operation. Its arguments depend on the texture's type, so the analyzer types it
+/// apart from the table below.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Tex {
+    /// `t.sample(s, uv)`, at the level the hardware picks; fragment shaders only.
+    Sample,
+    /// `t.sample_level(s, uv, level)`.
+    SampleLevel,
+    /// `t.load(coord, level)`, or `t.load(coord, sample)` for a multisampled texture.
+    Load,
+    /// `t.dimensions()`, the size of level 0.
+    Dimensions,
+}
+
+impl Tex {
+    pub fn method(self) -> &'static str {
+        match self {
+            Tex::Sample => "sample",
+            Tex::SampleLevel => "sample_level",
+            Tex::Load => "load",
+            Tex::Dimensions => "dimensions",
+        }
+    }
+}
+
+const TEX: [(Tex, &str); 4] = [
+    (Tex::Sample, "textureSample"),
+    (Tex::SampleLevel, "textureSampleLevel"),
+    (Tex::Load, "textureLoad"),
+    (Tex::Dimensions, "textureDimensions"),
+];
 
 /// How a builtin's argument types determine its result.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -143,6 +178,30 @@ pub const DEFS: &[Def] = &[
         receiver_last: true,
     },
     Def {
+        method: "dpdx",
+        function: "dpdx",
+        builtin: Builtin::Derivative(naga::DerivativeAxis::X),
+        rule: Rule::Float,
+        arity: 1,
+        receiver_last: false,
+    },
+    Def {
+        method: "dpdy",
+        function: "dpdy",
+        builtin: Builtin::Derivative(naga::DerivativeAxis::Y),
+        rule: Rule::Float,
+        arity: 1,
+        receiver_last: false,
+    },
+    Def {
+        method: "fwidth",
+        function: "fwidth",
+        builtin: Builtin::Derivative(naga::DerivativeAxis::Width),
+        rule: Rule::Float,
+        arity: 1,
+        receiver_last: false,
+    },
+    Def {
         method: "any",
         function: "any",
         builtin: Builtin::Any,
@@ -166,4 +225,14 @@ pub fn method(name: &str) -> Option<&'static Def> {
 
 pub fn function(name: &str) -> Option<&'static Def> {
     DEFS.iter().find(|d| d.function == name)
+}
+
+/// A texture method, by its Rust name.
+pub fn texture_method(name: &str) -> Option<Tex> {
+    TEX.iter().map(|t| t.0).find(|t| t.method() == name)
+}
+
+/// A texture operation, by its WGSL function name.
+pub fn texture_function(name: &str) -> Option<Tex> {
+    TEX.iter().find(|t| t.1 == name).map(|t| t.0)
 }

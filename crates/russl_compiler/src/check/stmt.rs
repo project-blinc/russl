@@ -17,7 +17,7 @@ impl Checker<'_> {
             }
             ended |= matches!(
                 stmt.kind,
-                StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue
+                StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue | StmtKind::Discard
             );
             out.push(self.stmt(stmt));
         }
@@ -187,6 +187,12 @@ impl Checker<'_> {
                 }
                 StmtKind::Return(value)
             }
+            StmtKind::Discard => {
+                if let super::Target::Fn(f) = self.target {
+                    self.fragment_ops.push((f, span, "`discard!()`"));
+                }
+                StmtKind::Discard
+            }
             StmtKind::Block(b) => StmtKind::Block(self.block(b)),
         };
         stmt
@@ -278,10 +284,11 @@ impl Checker<'_> {
     }
 }
 
-/// Whether every path through a block ends in `return` (or never leaves an endless loop).
+/// Whether every path through a block ends in `return` or `discard!()` (or never leaves an
+/// endless loop).
 pub fn returns(block: &Block) -> bool {
     block.iter().any(|s| match &s.kind {
-        StmtKind::Return(_) => true,
+        StmtKind::Return(_) | StmtKind::Discard => true,
         StmtKind::If {
             then,
             otherwise: Some(o),

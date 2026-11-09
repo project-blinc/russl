@@ -2,10 +2,10 @@
 //! control flow mapped onto naga's.
 
 use super::{ConstRef, Lower, binary, literal, scalar, unary, vector_size};
-use crate::builtins::Builtin;
+use crate::builtins::{Builtin, Tex};
 use crate::diag::naga_span;
 use crate::hir::{self, ExprId, ExprKind, FnId, LocalId, StmtKind};
-use crate::types::{Scalar, Type};
+use crate::types::{Scalar, TextureDim, TextureKind, Type};
 use naga::{Expression as E, Handle, Statement as S};
 use std::collections::HashMap;
 
@@ -276,6 +276,7 @@ impl FnLower<'_, '_> {
                 let value = v.map(|v| self.value(v));
                 self.push(S::Return { value }, span);
             }
+            StmtKind::Discard => self.push(S::Kill, span),
             StmtKind::Block(b) => {
                 let block = self.nested(b);
                 self.push(S::Block(block), span);
@@ -559,6 +560,54 @@ impl FnLower<'_, '_> {
         }
     }
 
+    /// A texture operation; `vals` holds the image first, as the analyzer checked them.
+    fn texture(
+        &mut self,
+        op: Tex,
+        image_ty: crate::types::TypeId,
+        vals: &[Handle<E>],
+        span: naga::Span,
+    ) -> Handle<E> {
+        let Type::Texture { dim, kind } = self.l.ty.get(image_ty) else {
+            unreachable!("checked a texture")
+        };
+        let layered = dim == TextureDim::D2Array;
+        let image = vals[0];
+        let last = *vals.last().expect("the image");
+        let expr = match op {
+            Tex::Sample | Tex::SampleLevel => E::ImageSample {
+                image,
+                sampler: vals[1],
+                gather: None,
+                coordinate: vals[2],
+                array_index: layered.then(|| vals[3]),
+                offset: None,
+                level: if op == Tex::Sample {
+                    naga::SampleLevel::Auto
+                } else {
+                    naga::SampleLevel::Exact(last)
+                },
+                depth_ref: None,
+                clamp_to_edge: false,
+            },
+            Tex::Load => {
+                let multi = matches!(kind, TextureKind::Multisampled(_));
+                E::ImageLoad {
+                    image,
+                    coordinate: vals[1],
+                    array_index: layered.then(|| vals[2]),
+                    sample: multi.then_some(last),
+                    level: (!multi).then_some(last),
+                }
+            }
+            Tex::Dimensions => E::ImageQuery {
+                image,
+                query: naga::ImageQuery::Size { level: None },
+            },
+        };
+        self.append(expr, span)
+    }
+
     fn value(&mut self, e: ExprId) -> Handle<E> {
         if let Some(ptr) = self.place(e) {
             let span = naga_span(self.body.expr(e).span);
@@ -659,6 +708,15 @@ impl FnLower<'_, '_> {
                             span,
                         )
                     }
+                    Builtin::Derivative(axis) => self.append(
+                        E::Derivative {
+                            axis,
+                            ctrl: naga::DerivativeControl::None,
+                            expr: vals[0],
+                        },
+                        span,
+                    ),
+                    Builtin::Texture(op) => self.texture(op, tys[0], &vals, span),
                 }
             }
             ExprKind::Construct(parts) => {

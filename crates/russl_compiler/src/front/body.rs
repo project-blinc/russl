@@ -119,9 +119,8 @@ impl Builder<'_, '_> {
                     }
                 }
                 syn::Stmt::Expr(e, semi) => {
-                    if semi.is_none() && last && returns && !is_control(e) {
-                        let value = self.expr(e);
-                        out.push(self.stmt(StmtKind::Return(Some(value)), e.span()));
+                    if semi.is_none() && last && returns {
+                        out.extend(self.tail(e));
                     } else if let Some(s) = self.statement(e) {
                         out.push(s);
                     }
@@ -132,9 +131,9 @@ impl Builder<'_, '_> {
                         .error(item.span(), "items cannot be declared inside a function");
                 }
                 syn::Stmt::Macro(m) => {
-                    self.f
-                        .sink
-                        .error(m.span(), "macros are not available in shaders");
+                    if let Some(s) = self.discard(&m.mac) {
+                        out.push(s);
+                    }
                 }
             }
         }
@@ -191,7 +190,7 @@ impl Builder<'_, '_> {
                     value,
                 }
             }
-            syn::Expr::If(i) => return self.if_statement(i),
+            syn::Expr::If(i) => return self.if_statement(i, false),
             syn::Expr::While(w) => {
                 self.no_label(w.label.as_ref());
                 let cond = self.expr(&w.cond);
@@ -205,7 +204,7 @@ impl Builder<'_, '_> {
                 }
             }
             syn::Expr::ForLoop(f) => return self.for_loop(f),
-            syn::Expr::Match(m) => return self.switch(m),
+            syn::Expr::Match(m) => return self.switch(m, false),
             syn::Expr::Block(b) => StmtKind::Block(self.block(&b.block.stmts, false)),
             syn::Expr::Break(b) => {
                 if b.label.is_some() || b.expr.is_some() {
@@ -222,9 +221,26 @@ impl Builder<'_, '_> {
                 StmtKind::Continue
             }
             syn::Expr::Return(r) => StmtKind::Return(r.expr.as_ref().map(|v| self.expr(v))),
+            syn::Expr::Macro(m) => return self.discard(&m.mac),
             other => StmtKind::Expr(self.expr(other)),
         };
         Some(self.stmt(kind, span))
+    }
+
+    /// `discard!()`, the one macro a shader body takes.
+    fn discard(&mut self, mac: &syn::Macro) -> Option<Stmt> {
+        if !mac.path.is_ident("discard") {
+            self.f
+                .sink
+                .error(mac.span(), "the only macro in a shader is `discard!()`");
+            return None;
+        }
+        if !mac.tokens.is_empty() {
+            self.f
+                .sink
+                .error(mac.tokens.span(), "`discard!()` takes no arguments");
+        }
+        Some(self.stmt(StmtKind::Discard, mac.span()))
     }
 
     fn no_label(&mut self, label: Option<&syn::Label>) {
@@ -233,7 +249,25 @@ impl Builder<'_, '_> {
         }
     }
 
-    fn if_statement(&mut self, i: &syn::ExprIf) -> Option<Stmt> {
+    /// A returning function's tail: a value is returned, and a branch returns its own tail.
+    fn tail(&mut self, e: &syn::Expr) -> Option<Stmt> {
+        match e {
+            syn::Expr::If(i) => self.if_statement(i, true),
+            syn::Expr::Match(m) => self.switch(m, true),
+            syn::Expr::Block(b) => {
+                let block = self.block(&b.block.stmts, true);
+                Some(self.stmt(StmtKind::Block(block), e.span()))
+            }
+            e if is_control(e) => self.statement(e),
+            e => {
+                let value = self.expr(e);
+                Some(self.stmt(StmtKind::Return(Some(value)), e.span()))
+            }
+        }
+    }
+
+    /// `returns` when the `if` is a returning function's tail, so each branch returns its own.
+    fn if_statement(&mut self, i: &syn::ExprIf, returns: bool) -> Option<Stmt> {
         if matches!(&*i.cond, syn::Expr::Let(_)) {
             self.f
                 .sink
@@ -241,11 +275,13 @@ impl Builder<'_, '_> {
             return None;
         }
         let cond = self.expr(&i.cond);
-        let then = self.block(&i.then_branch.stmts, false);
+        let then = self.block(&i.then_branch.stmts, returns);
         let otherwise = match i.else_branch.as_ref().map(|(_, e)| &**e) {
             None => None,
-            Some(syn::Expr::If(nested)) => Some(self.if_statement(nested).into_iter().collect()),
-            Some(syn::Expr::Block(b)) => Some(self.block(&b.block.stmts, false)),
+            Some(syn::Expr::If(nested)) => {
+                Some(self.if_statement(nested, returns).into_iter().collect())
+            }
+            Some(syn::Expr::Block(b)) => Some(self.block(&b.block.stmts, returns)),
             Some(other) => {
                 self.f.sink.error(other.span(), "expected a block");
                 None
@@ -299,7 +335,8 @@ impl Builder<'_, '_> {
         ))
     }
 
-    fn switch(&mut self, m: &syn::ExprMatch) -> Option<Stmt> {
+    /// `returns` as for [`Self::if_statement`].
+    fn switch(&mut self, m: &syn::ExprMatch, returns: bool) -> Option<Stmt> {
         let selector = self.expr(&m.expr);
         let mut cases = Vec::new();
         for arm in &m.arms {
@@ -310,10 +347,15 @@ impl Builder<'_, '_> {
             }
             let values = self.case_values(&arm.pat);
             let body = match &*arm.body {
-                syn::Expr::Block(b) => self.block(&b.block.stmts, false),
+                syn::Expr::Block(b) => self.block(&b.block.stmts, returns),
                 other => {
                     self.scopes.push(HashMap::new());
-                    let s = self.statement(other).into_iter().collect();
+                    let s = if returns {
+                        self.tail(other)
+                    } else {
+                        self.statement(other)
+                    };
+                    let s = s.into_iter().collect();
                     self.scopes.pop();
                     s
                 }
@@ -557,6 +599,13 @@ impl Builder<'_, '_> {
             if let Some(def) = builtins::function(&name) {
                 return self.push(ExprKind::Builtin(def.builtin, args), error, span);
             }
+            if let Some(op) = builtins::texture_function(&name) {
+                return self.push(
+                    ExprKind::Builtin(builtins::Builtin::Texture(op), args),
+                    error,
+                    span,
+                );
+            }
             return self.error(ident.span(), format!("cannot find function `{name}`"));
         }
         let segs: Vec<String> = p
@@ -607,6 +656,14 @@ impl Builder<'_, '_> {
         {
             let id = self.f.types.add(ty);
             return self.push(ExprKind::Cast(recv), id, span);
+        }
+        if let Some(op) = builtins::texture_method(&name) {
+            args.insert(0, recv);
+            return self.push(
+                ExprKind::Builtin(builtins::Builtin::Texture(op), args),
+                error,
+                span,
+            );
         }
         let Some(def) = builtins::method(&name) else {
             return self.error(m.method.span(), format!("no method `{name}` in shaders"));
@@ -728,6 +785,7 @@ fn is_control(e: &syn::Expr) -> bool {
             | syn::Expr::ForLoop(_)
             | syn::Expr::Match(_)
             | syn::Expr::Block(_)
+            | syn::Expr::Macro(_)
     )
 }
 

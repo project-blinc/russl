@@ -238,3 +238,38 @@ fn conventions_and_unused_bindings_are_warnings() {
     assert!(w.contains("unused variable: `unused`"), "{w}");
     assert!(w.contains("unreachable statement"), "{w}");
 }
+
+#[test]
+fn a_tail_if_or_match_returns_each_branch() {
+    let a = ok(r#"
+fn pick(kind: u32, x: f32) -> f32 {
+    match kind {
+        0 => x,
+        1 => { x * 2.0 }
+        _ => if x > 0.0 { x } else { -x },
+    }
+}
+
+#[fragment]
+#[location(0)]
+fn fs() -> Vec4 {
+    Vec4::splat(pick(1, 0.5))
+}
+"#);
+    assert!(a.wgsl.contains("switch"), "{}", a.wgsl);
+}
+
+#[test]
+fn a_shader_webgl2_cannot_run_has_no_glsl() {
+    let a = ok(r#"
+#[group(0)] #[binding(0)] static COLORS: Storage<[Vec4]>;
+
+#[fragment]
+#[location(0)]
+fn fs() -> Vec4 {
+    COLORS[0]
+}
+"#);
+    assert!(a.glsl.is_empty());
+    assert!(a.glsl_missing.is_some_and(|m| m.contains("BUFFER_STORAGE")));
+}

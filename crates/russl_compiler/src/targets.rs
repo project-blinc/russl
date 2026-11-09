@@ -29,10 +29,15 @@ pub fn emit(
     let (module, info) = (&module, &info);
     let wgsl = naga::back::wgsl::write_string(module, info, naga::back::wgsl::WriterFlags::empty())
         .map_err(|e| fail("WGSL", &e))?;
+    // One version for every device: MSL 2.1 runs on macOS 10.14 and iOS 12 onwards.
+    let msl_options = naga::back::msl::Options {
+        lang_version: (2, 1),
+        ..Default::default()
+    };
     let (msl, _) = naga::back::msl::write_string(
         module,
         info,
-        &naga::back::msl::Options::default(),
+        &msl_options,
         &naga::back::msl::PipelineOptions::default(),
     )
     .map_err(|e| fail("MSL", &e))?;
@@ -57,6 +62,7 @@ pub fn emit(
         ..Default::default()
     };
     let mut glsl = Vec::new();
+    let mut glsl_missing = None;
     for entry in &module.entry_points {
         let stage = match entry.stage {
             naga::ShaderStage::Vertex => Stage::Vertex,
@@ -64,7 +70,7 @@ pub fn emit(
             _ => continue,
         };
         let mut source = String::new();
-        naga::back::glsl::Writer::new(
+        let written = naga::back::glsl::Writer::new(
             &mut source,
             module,
             info,
@@ -76,8 +82,17 @@ pub fn emit(
             },
             naga::proc::BoundsCheckPolicies::default(),
         )
-        .and_then(|mut w| w.write())
-        .map_err(|e| fail("GLSL", &e))?;
+        .and_then(|mut w| w.write());
+        match written {
+            Ok(_) => {}
+            // WebGL2 cannot run this module at all, which is no fault of its source.
+            Err(naga::back::glsl::Error::MissingFeatures(f)) => {
+                glsl.clear();
+                glsl_missing = Some(format!("GLSL ES 3.00 has no {f:?}"));
+                break;
+            }
+            Err(e) => return Err(fail("GLSL", &e)),
+        }
         glsl.push(GlslEntry {
             entry_point: entry.name.clone(),
             stage,
@@ -91,6 +106,7 @@ pub fn emit(
         hlsl,
         spirv,
         glsl,
+        glsl_missing,
         warnings: Vec::new(),
         library: false,
     })

@@ -140,7 +140,8 @@ fn compile(st: &State) -> Tokens {
                     pub const MSL: &str = #msl;
                     pub const HLSL: &str = #hlsl;
                     pub const SPIRV: &[u32] = &[#(#spirv),*];
-                    /// GLSL ES 3.00 per entry point: (entry point name, source).
+                    /// GLSL ES 3.00 per entry point: (entry point name, source). Empty when the
+                    /// shader needs what WebGL2 lacks, such as storage buffers.
                     pub const GLSL: &[(&str, &str)] = &[#(#glsl),*];
                 }
             };

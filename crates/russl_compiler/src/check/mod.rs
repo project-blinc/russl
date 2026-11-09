@@ -4,6 +4,7 @@
 mod expr;
 mod rules;
 mod stmt;
+mod texture;
 
 use crate::diag::{Sink, Spans};
 use crate::hir::*;
@@ -40,6 +41,8 @@ pub struct Checker<'a> {
     used_globals: HashSet<GlobalId>,
     /// Which globals each function reads or writes, for the bindings a program really uses.
     fn_globals: Vec<(FnId, GlobalId)>,
+    /// Operations only a fragment shader runs, with the function they are in.
+    fragment_ops: Vec<(FnId, crate::diag::SpanId, &'static str)>,
     /// Whether the body being checked is the root module's; only its warnings are reported,
     /// since an imported module reports its own when it is compiled.
     root: bool,
@@ -66,6 +69,7 @@ pub fn module(
         used_consts: HashSet::new(),
         used_globals: HashSet::new(),
         fn_globals: Vec::new(),
+        fragment_ops: Vec::new(),
         root: true,
         loop_depth: 0,
         ret: None,

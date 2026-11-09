@@ -36,8 +36,10 @@ pub struct Artifacts {
     pub hlsl: String,
     /// SPIR-V words, for Vulkan.
     pub spirv: Vec<u32>,
-    /// GLSL ES 3.00 for WebGL2, one source per vertex or fragment entry point.
+    /// GLSL ES 3.00 for WebGL2, one source per vertex or fragment entry point. Empty when the
+    /// module needs what WebGL2 lacks, such as storage buffers; `glsl_missing` names it.
     pub glsl: Vec<GlslEntry>,
+    pub glsl_missing: Option<String>,
     pub warnings: Vec<Diagnostic>,
     /// The module has no entry points: a library for other modules to import. It was checked,
     /// and no target was written.
@@ -158,6 +160,7 @@ pub fn compile_program_with(
             hlsl: String::new(),
             spirv: Vec::new(),
             glsl: Vec::new(),
+            glsl_missing: None,
             warnings: sink.items,
             library: true,
         });

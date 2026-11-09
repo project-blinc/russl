@@ -1,7 +1,7 @@
 //! Diagnostics rendered with source snippets, by ariadne.
 
 use crate::{Diagnostic, Severity};
-use ariadne::{Color, Config, Label, Report, ReportKind, Source};
+use ariadne::{Color, Config, IndexType, Label, Report, ReportKind, Source};
 
 /// Render diagnostics against the source they came from. `file` names it in the output.
 pub fn render(diagnostics: &[Diagnostic], file: &str, source: &str, color: bool) -> String {
@@ -16,7 +16,11 @@ pub fn render(diagnostics: &[Diagnostic], file: &str, source: &str, color: bool)
             .max(start + 1)
             .min(source.len().max(start + 1));
         let report = Report::build(kind, (file, start..end))
-            .with_config(Config::default().with_color(color))
+            .with_config(
+                Config::default()
+                    .with_color(color)
+                    .with_index_type(IndexType::Byte),
+            )
             .with_message(&d.message)
             .with_label(
                 Label::new((file, start..end))
@@ -43,4 +47,18 @@ fn offset(source: &str, at: proc_macro2::LineColumn) -> usize {
             .take(at.column)
             .map(char::len_utf8)
             .sum::<usize>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_ascii_text_above_does_not_move_the_label() {
+        let source = "// d \u{2014} \u{2207}d \u{2192} x\nfn f() { _ = 1.0; }\n";
+        let tokens = source.parse().expect("tokens");
+        let d = crate::compile(tokens).expect_err("an error");
+        let text = render(&d, "t.russl", source, false);
+        assert!(text.contains("t.russl:2:10"), "{text}");
+    }
 }

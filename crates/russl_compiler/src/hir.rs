@@ -198,6 +198,8 @@ pub enum StmtKind {
     Break,
     Continue,
     Return(Option<ExprId>),
+    /// `discard!()`: the fragment writes nothing; fragment shaders only.
+    Discard,
     Block(Block),
 }
 

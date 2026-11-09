@@ -85,7 +85,7 @@ impl Checker<'_> {
         ty
     }
 
-    fn infer(&mut self, e: ExprId) -> TypeId {
+    pub(super) fn infer(&mut self, e: ExprId) -> TypeId {
         let error = self.types.error;
         let preset = self.body().expr(e).ty;
         let kind = self.body().expr(e).kind.clone();
@@ -380,6 +380,11 @@ impl Checker<'_> {
 
     fn builtin(&mut self, e: ExprId, b: Builtin, args: &[ExprId]) -> TypeId {
         let error = self.types.error;
+        match b {
+            Builtin::Texture(op) => return self.texture(e, op, args),
+            Builtin::Derivative(_) => self.fragment_only(e, "a derivative"),
+            _ => {}
+        }
         let def = crate::builtins::DEFS
             .iter()
             .find(|d| d.builtin == b)

@@ -17,6 +17,7 @@ enum Dir {
 impl Checker<'_> {
     pub(super) fn rules(&mut self, reachable: &std::collections::HashSet<FnId>) {
         self.entry_points();
+        self.stages();
         self.bindings(reachable);
         self.conventions();
         self.unused_items();
@@ -87,6 +88,44 @@ impl Checker<'_> {
                     "a vertex entry point returns `#[builtin(position)]`",
                 ),
                 (Stage::Fragment, None) => {}
+            }
+        }
+    }
+
+    /// A vertex or compute entry point must not reach an operation only fragments run.
+    fn stages(&mut self) {
+        let mut reported = std::collections::HashSet::new();
+        for i in 0..self.module.functions.len() {
+            let f = &self.module.functions[i];
+            let stage = match f.stage {
+                Some(Stage::Vertex) => "vertex",
+                Some(Stage::Compute(_)) => "compute",
+                _ => continue,
+            };
+            if f.module != 0 {
+                continue;
+            }
+            let entry = self.names.get(f.name).to_string();
+            let mut seen = std::collections::HashSet::from([FnId(i as u32)]);
+            let mut stack = vec![FnId(i as u32)];
+            while let Some(g) = stack.pop() {
+                for &(from, to) in &self.calls {
+                    if from == g && seen.insert(to) {
+                        stack.push(to);
+                    }
+                }
+            }
+            let ops: Vec<_> = self
+                .fragment_ops
+                .iter()
+                .filter(|(f, span, _)| seen.contains(f) && reported.insert(*span))
+                .map(|&(_, span, what)| (span, what))
+                .collect();
+            for (span, what) in ops {
+                self.sink.error(
+                    self.spans.get(span),
+                    format!("{what} runs only in a fragment shader, and `{entry}` is a {stage} entry point"),
+                );
             }
         }
     }
