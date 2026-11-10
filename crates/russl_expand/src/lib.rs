@@ -179,8 +179,8 @@ impl Expander<'_> {
                         false,
                     )
                 } else {
-                    let bytemuck = syn::parse2::<syn::File>(st.root.clone())
-                        .is_ok_and(|f| f.attrs.iter().any(|a| a.path().is_ident("bytemuck")));
+                    let bytemuck = file_attrs(&st.root)
+                        .is_some_and(|attrs| attrs.iter().any(|a| a.path().is_ident("bytemuck")));
                     host::items(&a.reflection, bytemuck)
                 };
                 quote! { #(#warnings)* #consts #host #interface }
@@ -198,8 +198,8 @@ fn interface(st: &State) -> Tokens {
     let source = &st.root;
     let deps: Vec<&str> = st.loaded.iter().map(|m| m.id.as_str()).collect();
     let imports = st.root_imports.iter().map(|(k, i)| quote! { (#k, #i) });
-    let export = syn::parse2::<syn::File>(st.root.clone())
-        .is_ok_and(|f| f.attrs.iter().any(|a| a.path().is_ident("export")));
+    let export =
+        file_attrs(&st.root).is_some_and(|attrs| attrs.iter().any(|a| a.path().is_ident("export")));
     let reexport = if export {
         quote! { pub }
     } else {
@@ -232,6 +232,13 @@ fn interface(st: &State) -> Tokens {
     }
 }
 
+/// The inner attributes of a module's source (`#![export]` and the like), read with every
+/// conditional branch kept: the attributes are the module's own, not a branch's.
+fn file_attrs(root: &Tokens) -> Option<Vec<syn::Attribute>> {
+    let flat = russl_compiler::all_branches(root.clone()).ok()?;
+    syn::parse2::<syn::File>(flat).ok().map(|f| f.attrs)
+}
+
 /// The key under which a specialisation's target sits among the root's imports.
 const SPECIALIZE: &str = "#specialize";
 
@@ -240,8 +247,11 @@ const SPECIALIZE: &str = "#specialize";
 fn specialization(
     root: &Tokens,
 ) -> Result<Option<(syn::Path, Vec<russl_compiler::Constant>)>, Vec<Diagnostic>> {
-    let file: syn::File =
-        syn::parse2(root.clone()).map_err(|e| vec![Diagnostic::error(e.span(), e.to_string())])?;
+    let file: syn::File = russl_compiler::all_branches(root.clone())
+        .map_err(|d| vec![d])
+        .and_then(|flat| {
+            syn::parse2(flat).map_err(|e| vec![Diagnostic::error(e.span(), e.to_string())])
+        })?;
     let Some(attr) = file.attrs.iter().find(|a| a.path().is_ident("specialize")) else {
         return Ok(None);
     };

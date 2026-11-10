@@ -41,7 +41,11 @@ impl Program {
         let mut queue = vec![(program.add(root, text, &mut diagnostics), path.clone())];
         index.insert(path, 0);
         while let Some((m, path)) = queue.pop() {
-            let Ok(file) = syn::parse2::<syn::File>(program.modules[m].source.clone()) else {
+            let Ok(source) = crate::preprocess::all_branches(program.modules[m].source.clone())
+            else {
+                continue;
+            };
+            let Ok(file) = syn::parse2::<syn::File>(source) else {
                 // Reported when the program compiles.
                 continue;
             };

@@ -17,6 +17,7 @@ mod hir;
 mod intern;
 mod lower;
 mod native;
+mod preprocess;
 mod reflect;
 #[cfg(feature = "ariadne")]
 mod render;
@@ -34,6 +35,7 @@ pub use native::{
     GlslBindings, GlslTexture, HlslBinding, HlslSlot, MslEntry, MslResource, MslSlot,
     NativeBindings,
 };
+pub use preprocess::all_branches;
 pub use reflect::{
     BindingLayout, FieldLayout, HostScalar, HostType, Reflection, StructImport, StructLayout,
     VertexInput, VertexInputs,
@@ -119,6 +121,9 @@ pub fn compile(source: TokenStream) -> Result<Artifacts, Vec<Diagnostic>> {
 /// The module paths a module's `use` items name, each once: a key (as [`Module::imports`]
 /// expects it) and the path's tokens, with the spans they were written with.
 pub fn use_paths(source: TokenStream) -> Result<Vec<(String, TokenStream)>, Diagnostic> {
+    // An import in any branch of a conditional is an import: the branch is chosen when the whole
+    // program is compiled.
+    let source = preprocess::all_branches(source)?;
     let file: syn::File =
         syn::parse2(source).map_err(|e| Diagnostic::error(e.span(), e.to_string()))?;
     Ok(front::use_paths(&file)
@@ -152,8 +157,12 @@ pub fn compile_program_ext(
     let mut sink = diag::Sink::default();
     let mut files = Vec::with_capacity(modules.len() + 1);
     let mut imports: Vec<Vec<(String, usize)>> = Vec::with_capacity(modules.len() + 1);
+    // `#if` reads the program's pipeline constants, the same in every module.
+    let sources: Vec<&TokenStream> = modules.iter().map(|m| &m.source).collect();
+    let defines = preprocess::defines(&sources, constants).map_err(|d| vec![d])?;
     for m in modules {
-        let mut file = syn::parse2::<syn::File>(m.source.clone())
+        let source = preprocess::apply(m.source.clone(), &defines).map_err(|d| vec![d])?;
+        let mut file = syn::parse2::<syn::File>(source)
             .map_err(|e| vec![Diagnostic::error(e.span(), e.to_string())])?;
         extension::link(&mut file, ext, &mut sink);
         files.push(file);

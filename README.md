@@ -22,6 +22,30 @@ A `#[pipeline]` constant is specialised at build time, never at run time: a modu
 `#![specialize(path::to::shader)]` and `const NAME: T = value;` items expands to that shader's
 artifacts with those values.
 
+### Conditional source
+
+`#if`, `#elif`, `#else` and `#endif` choose source by the program's pipeline constants, before
+the source is parsed, so a condition can choose an item, a binding, a struct field, an entry
+point's parameter or a statement. A library module sees the value its shader is specialised with.
+One file can therefore be built for a device that has storage buffers and for one that has none:
+
+```rust
+#[pipeline] const TIER: u32 = 0;
+
+#if TIER == 2
+    #[group(0)] #[binding(1)] pub static DATA: Texture2D<f32>;
+    pub fn load(i: u32) -> Vec4 { DATA.load(IVec2::new(i as i32, 0), 0) }
+#else
+    #[group(0)] #[binding(1)] pub static DATA: Storage<[Vec4]>;
+    pub fn load(i: u32) -> Vec4 { DATA[i] }
+#endif
+```
+
+A condition is a bool or a comparison of numbers (`==`, `!=`, `<`, `<=`, `>`, `>=`), joined with
+`!`, `&&`, `||` and brackets. Each variant is its own specialisation (`#![specialize(..)]` with
+`const TIER: u32 = 2;`) and its own set of artifacts, built at compile time; a program picks one at
+run time. A condition names a constant declared outside any conditional.
+
 ## Usage
 
 ```toml
