@@ -134,6 +134,10 @@ russl check shaders/card.russl --deny-warnings   # what CI runs
 russl emit shaders/card.russl msl                # or wgsl, hlsl, glsl, spirv
 ```
 
+Each release has archives of the `russl` command for macOS, Linux and Windows, and of
+`russl-toy`, a live shader playground built with Blinc (macOS on Apple Silicon, Linux x86_64,
+Windows). `cargo install russl_cli` builds the command from source.
+
 ### Extensions
 
 A framework adds to russl without changing it, through `russl_compiler::Extension`:
