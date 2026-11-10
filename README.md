@@ -193,7 +193,10 @@ compiles with its root's extension. `russl_build::compile_ext` takes one too.
   checks every target with its own compiler (spirv-val, DXC, the Metal compiler, glslang).
 - **Modules and reuse**: a module without entry points is a library; `use` imports its `pub`
   functions, types and bindings by path, across files and crates, and only what an entry point
-  reaches is emitted. Inspired by the export, import and linking of Heaps' HXSL.
+  reaches is emitted. A module that other crates import, and every module it imports, starts
+  with `#![export]`; any other stays inside its Rust module, so one file can be included under
+  several Rust modules (`#[path]`), each compiling against the imports beside it. Inspired by the
+  export, import and linking of Heaps' HXSL.
 - **Errors at your token**: never a line number in generated WGSL.
 - **Extensions**: a framework adds its own prelude, externs, builtins and rules without changing
   the core.

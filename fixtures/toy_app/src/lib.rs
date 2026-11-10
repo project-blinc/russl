@@ -3,6 +3,7 @@
 
 pub mod shapes {
     russl::russl! {
+        #![export]
         pub fn sd_circle(p: Vec2, r: f32) -> f32 { p.length() - r }
     }
 }

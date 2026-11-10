@@ -3,12 +3,14 @@
 
 mod basics {
     russl::russl! {
+        #![export]
         pub fn sd_circle(p: Vec2, r: f32) -> f32 { p.length() - r }
     }
 }
 
 pub mod sdf {
     russl::russl! {
+        #![export]
         pub use super::basics::sd_circle;
         pub fn sd_ring(p: Vec2, r: f32, w: f32) -> f32 { sd_circle(p, r).abs() - w }
     }

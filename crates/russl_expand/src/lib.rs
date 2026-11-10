@@ -198,21 +198,36 @@ fn interface(st: &State) -> Tokens {
     let source = &st.root;
     let deps: Vec<&str> = st.loaded.iter().map(|m| m.id.as_str()).collect();
     let imports = st.root_imports.iter().map(|(k, i)| quote! { (#k, #i) });
+    let export = syn::parse2::<syn::File>(st.root.clone())
+        .is_ok_and(|f| f.attrs.iter().any(|a| a.path().is_ident("export")));
+    let reexport = if export {
+        quote! { pub }
+    } else {
+        quote! { pub(crate) }
+    };
     let aliases = st.loaded.iter().enumerate().map(|(k, m)| {
         let alias = format_ident!("__russl_dep_{}", k);
         let path = &m.path;
-        quote! { #[doc(hidden)] pub use #path as #alias; }
+        quote! { #[doc(hidden)] #reexport use #path as #alias; }
     });
+    // A module other crates import is exported at the crate root, where its name must be unique
+    // for the whole crate. Any other is scoped to its Rust module, so the same file can sit under
+    // several modules.
+    let visibility = if export {
+        quote! { #[macro_export] }
+    } else {
+        quote! {}
+    };
     quote! {
         #[doc(hidden)]
-        #[macro_export]
+        #visibility
         macro_rules! #source_macro {
             ($cb:path { $($state:tt)* }) => {
                 $cb! { $($state)* module { id #id deps [#(#deps)*] imports [#(#imports)*] source { #source } } }
             };
         }
         #[doc(hidden)]
-        pub use #source_macro as russl_module;
+        #reexport use #source_macro as russl_module;
         #(#aliases)*
     }
 }
