@@ -641,6 +641,21 @@ impl FnLower<'_, '_> {
                 depth_ref: None,
                 clamp_to_edge: false,
             },
+            Tex::SampleCompare | Tex::SampleCompareLevel => E::ImageSample {
+                image,
+                sampler: vals[1],
+                gather: None,
+                coordinate: vals[2],
+                array_index: layered.then(|| vals[3]),
+                offset: None,
+                level: if op == Tex::SampleCompare {
+                    naga::SampleLevel::Auto
+                } else {
+                    naga::SampleLevel::Zero
+                },
+                depth_ref: Some(last),
+                clamp_to_edge: false,
+            },
             Tex::Load => {
                 let multi = matches!(kind, TextureKind::Multisampled(_));
                 E::ImageLoad {

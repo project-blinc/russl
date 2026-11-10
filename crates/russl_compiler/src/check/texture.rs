@@ -37,7 +37,7 @@ impl Checker<'_> {
         let rest = &args[1..];
         let want = match op {
             Tex::Sample => 2,
-            Tex::SampleLevel => 3,
+            Tex::SampleLevel | Tex::SampleCompare | Tex::SampleCompareLevel => 3,
             Tex::Load => 2,
             Tex::Dimensions => 0,
         } + usize::from(layered && op != Tex::Dimensions);
@@ -87,6 +87,30 @@ impl Checker<'_> {
                     }
                 } else {
                     self.fragment_only(e, "`sample`");
+                }
+                texel
+            }
+            Tex::SampleCompare | Tex::SampleCompareLevel => {
+                if !depth {
+                    self.error_at(
+                        image,
+                        "only a depth texture is compared against a reference",
+                    );
+                    return error;
+                }
+                let sampler = self.types.add(Type::Sampler { comparison: true });
+                self.check(rest[0], Some(sampler));
+                let coord = self.float_coords(coords);
+                self.check(rest[1], Some(coord));
+                let mut next = 2;
+                if layered {
+                    self.int_arg(rest[next], 1, "a layer");
+                    next += 1;
+                }
+                let f32 = self.types.f32;
+                self.check(rest[next], Some(f32));
+                if op == Tex::SampleCompare {
+                    self.fragment_only(e, "`sample_compare`");
                 }
                 texel
             }

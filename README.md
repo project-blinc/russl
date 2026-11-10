@@ -201,7 +201,8 @@ compiles with its root's extension. `russl_build::compile_ext` takes one too.
 
 - **Rust syntax**: `fn`, `struct`, `const`, `let`, `if`/`else`, `match`, `for` over ranges,
   method-call builtins (`v.dot(w)`, `x.clamp(a, b)`, `x.fwidth()`), texture methods
-  (`atlas.sample_level(sampler, uv, 0.0)`, `t.load(coord, 0)`, `t.dimensions()`), `discard!()`,
+  (`atlas.sample_level(sampler, uv, 0.0)`, `t.load(coord, 0)`, `t.dimensions()`, and
+  `map.sample_compare(sampler, uv, depth)` on a depth texture with a comparison sampler), `discard!()`,
   swizzles on both sides of `=` (`c.xz = v`), arrays sized by constants (`[f32; TAPS * 2]`) and
   repeated (`[0.0; N]`), `f16` and `HVec*`, Rust operators and casts.
 - **Generics**: `fn lerp<T: Float>(..)`, `fn blur<const N: u32>(w: [f32; N])`, `struct Pair<T>`

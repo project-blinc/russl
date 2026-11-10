@@ -168,3 +168,78 @@ fn fs() -> Vec4 {
         14,
     );
 }
+
+const SHADOW: &str = r#"
+#[group(0)] #[binding(0)] static MAP: TextureDepth2D;
+#[group(0)] #[binding(1)] static COMPARE: SamplerComparison;
+
+#[fragment]
+#[location(0)]
+fn fs(#[location(0)] uv: Vec2, #[location(1)] depth: f32) -> Vec4 {
+    let lit = MAP.sample_compare(COMPARE, uv, depth);
+    let soft = MAP.sample_compare_level(COMPARE, uv + Vec2::splat(0.001), depth - 0.002);
+    Vec4::splat((lit + soft) * 0.5)
+}
+"#;
+
+#[test]
+fn a_depth_texture_is_compared_with_a_comparison_sampler() {
+    let a = ok(SHADOW);
+    assert!(a.wgsl.contains("textureSampleCompare("), "{}", a.wgsl);
+    assert!(a.wgsl.contains("textureSampleCompareLevel("), "{}", a.wgsl);
+    assert!(a.wgsl.contains("sampler_comparison"), "{}", a.wgsl);
+    assert!(a.wgsl.contains("texture_depth_2d"), "{}", a.wgsl);
+}
+
+#[test]
+fn comparing_needs_a_depth_texture_and_a_comparison_sampler() {
+    error_at(
+        r#"
+#[group(0)] #[binding(0)] static ATLAS: Texture2D<f32>;
+#[group(0)] #[binding(1)] static COMPARE: SamplerComparison;
+
+#[fragment]
+#[location(0)]
+fn fs() -> Vec4 {
+    Vec4::splat(ATLAS.sample_compare(COMPARE, Vec2::ZERO, 0.5))
+}
+"#,
+        "only a depth texture is compared against a reference",
+        8,
+        17,
+    );
+    error_at(
+        r#"
+#[group(0)] #[binding(0)] static MAP: TextureDepth2D;
+#[group(0)] #[binding(1)] static SAMPLER: Sampler;
+
+#[fragment]
+#[location(0)]
+fn fs() -> Vec4 {
+    Vec4::splat(MAP.sample_compare(SAMPLER, Vec2::ZERO, 0.5))
+}
+"#,
+        "expected",
+        8,
+        36,
+    );
+}
+
+#[test]
+fn comparing_at_an_implicit_level_is_for_fragment_shaders() {
+    error_at(
+        r#"
+#[group(0)] #[binding(0)] static MAP: TextureDepth2D;
+#[group(0)] #[binding(1)] static COMPARE: SamplerComparison;
+
+#[vertex]
+#[builtin(position)]
+fn vs() -> Vec4 {
+    Vec4::splat(MAP.sample_compare(COMPARE, Vec2::ZERO, 0.5))
+}
+"#,
+        "runs only in a fragment shader",
+        8,
+        17,
+    );
+}

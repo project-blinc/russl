@@ -21,6 +21,12 @@ pub enum Tex {
     Sample,
     /// `t.sample_level(s, uv, level)`.
     SampleLevel,
+    /// `t.sample_compare(s, uv, reference)` on a depth texture with a comparison sampler: the
+    /// fraction of the texels the reference passes against, at the level the hardware picks;
+    /// fragment shaders only.
+    SampleCompare,
+    /// `t.sample_compare_level(s, uv, reference)`: the same at level 0.
+    SampleCompareLevel,
     /// `t.load(coord, level)`, or `t.load(coord, sample)` for a multisampled texture.
     Load,
     /// `t.dimensions()`, the size of level 0.
@@ -32,15 +38,19 @@ impl Tex {
         match self {
             Tex::Sample => "sample",
             Tex::SampleLevel => "sample_level",
+            Tex::SampleCompare => "sample_compare",
+            Tex::SampleCompareLevel => "sample_compare_level",
             Tex::Load => "load",
             Tex::Dimensions => "dimensions",
         }
     }
 }
 
-const TEX: [(Tex, &str); 4] = [
+const TEX: [(Tex, &str); 6] = [
     (Tex::Sample, "textureSample"),
     (Tex::SampleLevel, "textureSampleLevel"),
+    (Tex::SampleCompare, "textureSampleCompare"),
+    (Tex::SampleCompareLevel, "textureSampleCompareLevel"),
     (Tex::Load, "textureLoad"),
     (Tex::Dimensions, "textureDimensions"),
 ];
