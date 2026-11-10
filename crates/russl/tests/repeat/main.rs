@@ -1,5 +1,8 @@
 //! The same shader file under two Rust modules compiles against each module's own imports.
 
+// The point of the test: one file is a module of each.
+#![allow(clippy::duplicate_mod)]
+
 mod bright;
 mod dim;
 
