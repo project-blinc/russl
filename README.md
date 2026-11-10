@@ -26,7 +26,7 @@ artifacts with those values.
 
 ```toml
 [dependencies]
-russl = "0.1"
+russl = "0.3"
 ```
 
 A `russl!` block is one shader module. One with entry points expands to `WGSL`, `MSL`, `HLSL`,
