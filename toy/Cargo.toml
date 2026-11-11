@@ -16,17 +16,17 @@ path = "src/main.rs"
 
 [dependencies]
 russl_compiler = { path = "../crates/russl_compiler" }
-blinc_app = { git = "https://github.com/project-blinc/Blinc", rev = "2ca5f509e73600e7629f70d827b4f2850f5f9eb9" }
-blinc_core = { git = "https://github.com/project-blinc/Blinc", rev = "2ca5f509e73600e7629f70d827b4f2850f5f9eb9" }
-blinc_layout = { git = "https://github.com/project-blinc/Blinc", rev = "2ca5f509e73600e7629f70d827b4f2850f5f9eb9" }
-blinc_cn = { git = "https://github.com/project-blinc/Blinc", rev = "2ca5f509e73600e7629f70d827b4f2850f5f9eb9" }
-blinc_theme = { git = "https://github.com/project-blinc/Blinc", rev = "2ca5f509e73600e7629f70d827b4f2850f5f9eb9" }
+blinc_app = { git = "https://github.com/project-blinc/Blinc", rev = "39ea8fd78d5d00d535134d83327bcf9d2113b12b" }
+blinc_core = { git = "https://github.com/project-blinc/Blinc", rev = "39ea8fd78d5d00d535134d83327bcf9d2113b12b" }
+blinc_layout = { git = "https://github.com/project-blinc/Blinc", rev = "39ea8fd78d5d00d535134d83327bcf9d2113b12b" }
+blinc_cn = { git = "https://github.com/project-blinc/Blinc", rev = "39ea8fd78d5d00d535134d83327bcf9d2113b12b" }
+blinc_theme = { git = "https://github.com/project-blinc/Blinc", rev = "39ea8fd78d5d00d535134d83327bcf9d2113b12b" }
 proc-macro2 = "1.0.95"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
 [dev-dependencies]
-blinc_recorder = { git = "https://github.com/project-blinc/Blinc", rev = "2ca5f509e73600e7629f70d827b4f2850f5f9eb9", features = ["headless"] }
+blinc_recorder = { git = "https://github.com/project-blinc/Blinc", rev = "39ea8fd78d5d00d535134d83327bcf9d2113b12b", features = ["headless"] }
 naga = { version = "=26.0.0", features = ["wgsl-in"] }
 
 # Blinc builds its shaders with russl from crates.io; the toy builds both with this checkout.
