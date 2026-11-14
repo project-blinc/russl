@@ -203,7 +203,8 @@ A shader language with its own front end can use russl for every other target.
 `russl_compiler::compile_wgsl(source, constants)` takes one WGSL module, with its vertex and
 fragment entry points or a compute one, and returns the same `Artifacts`: MSL, HLSL, SPIR-V and
 GLSL ES, with `reflection.native` giving each target's slots. Pipeline constants are keyed by an
-override's `@id` written as a number, else by its name. The reflection that comes from russl's
+override's `@id` written as a number, else by its name; an unknown key, a key given twice, or a
+value the override's type cannot hold is an error. The reflection that comes from russl's
 own checking, such as struct twins and vertex inputs, is empty. Errors are naga's, rendered
 against the WGSL. Validation allows every naga capability, so a front end that targets WebGPU
 alone rejects the features WebGPU lacks itself.

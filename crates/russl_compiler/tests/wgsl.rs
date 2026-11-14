@@ -208,3 +208,88 @@ fn a_module_with_no_entry_points_is_refused() {
     let e = compile_wgsl("fn helper() -> f32 { return 1.0; }", &[]).unwrap_err();
     assert!(e.to_string().contains("no entry points"));
 }
+
+/// Overrides of each scalar kind, one with an id.
+const OVERRIDES: &str = r#"
+@id(7) override gain: f32 = 1.0;
+override n: i32 = 3;
+override count: u32 = 1u;
+override flag: bool = true;
+@fragment fn fs() -> @location(0) vec4<f32> {
+    var g = gain * f32(n) * f32(count);
+    if (!flag) { g = 0.0; }
+    return vec4<f32>(g);
+}
+"#;
+
+fn refused(constants: &[(&str, f64)]) -> String {
+    compile_wgsl(OVERRIDES, constants)
+        .expect_err("refused")
+        .message()
+        .to_string()
+}
+
+#[test]
+fn a_constant_the_module_lacks_is_refused_with_the_keys_it_has() {
+    let e = refused(&[("gian", 2.0)]);
+    assert!(e.contains("no pipeline constant \"gian\""), "{e}");
+    assert!(
+        e.contains("\"7\"") && e.contains("\"n\"") && e.contains("\"flag\""),
+        "{e}"
+    );
+}
+
+#[test]
+fn an_overrides_name_is_refused_when_it_has_an_id() {
+    let e = refused(&[("gain", 2.0)]);
+    assert!(e.contains("use \"7\""), "{e}");
+}
+
+#[test]
+fn a_constant_given_twice_is_refused() {
+    let e = refused(&[("7", 2.0), ("7", 5.0)]);
+    assert!(e.contains("given twice"), "{e}");
+}
+
+#[test]
+fn a_value_that_does_not_fit_the_overrides_type_is_refused() {
+    assert!(refused(&[("n", 2.9)]).contains("`i32`"));
+    assert!(refused(&[("n", 3e9)]).contains("`i32`"));
+    assert!(refused(&[("count", -1.0)]).contains("`u32`"));
+    assert!(refused(&[("flag", 0.5)]).contains("`bool`"));
+}
+
+#[test]
+fn values_that_fit_are_taken() {
+    use russl_compiler::ConstValue;
+    let a = compile_wgsl(
+        OVERRIDES,
+        &[("7", 0.25), ("n", -4.0), ("count", 4e9), ("flag", 0.0)],
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        a.reflection.constants,
+        [
+            ("gain".to_string(), ConstValue::Float(0.25)),
+            ("n".to_string(), ConstValue::Int(-4)),
+            ("count".to_string(), ConstValue::Int(4_000_000_000)),
+            ("flag".to_string(), ConstValue::Bool(false)),
+        ]
+    );
+}
+
+#[test]
+fn a_compute_stage_has_a_sizes_buffer_when_a_storage_buffer_is_bound() {
+    let a = compile_wgsl(
+        r#"
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+@compute @workgroup_size(16) fn main(@builtin(global_invocation_id) id: vec3<u32>) { data[id.x] += 1u; }
+"#,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(
+        slots(&a, "main"),
+        (vec![((0, 0), MslSlot::Buffer(0))], Some(1))
+    );
+}

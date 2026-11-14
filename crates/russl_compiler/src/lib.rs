@@ -295,7 +295,8 @@ pub fn compile_program_ext(
 /// source: validated, then written for every target as [`compile`] writes russl's.
 ///
 /// `constants` sets pipeline constants by the key naga looks them up by: the override's
-/// `@id(n)` as `"n"` if it has one, else its name. The others keep their defaults.
+/// `@id(n)` as `"n"` if it has one, else its name. The others keep their defaults. A key that
+/// names no override, a key given twice, or a value its override's type cannot hold is an error.
 ///
 /// Reflection that comes from checking russl source (struct layouts, bindings, vertex inputs,
 /// struct imports) is empty; `reflection.native` and `reflection.constants` are filled.
@@ -313,17 +314,94 @@ pub fn compile_wgsl(source: &str, constants: &[(&str, f64)]) -> Result<Artifacts
     )
     .validate(&module)
     .map_err(|e| WgslError(e.emit_to_string(source)))?;
-    let values: naga::back::PipelineConstants = constants
-        .iter()
-        .map(|&(key, value)| (key.to_string(), value))
-        .collect();
+    let values = wgsl_constants(&module, constants)?;
     targets::emit(&module, &info, &values).map_err(WgslError)
 }
 
+/// Check each given value against the module's overrides, as [`specialize`] does for russl
+/// source, since naga ignores a key that names no override.
+fn wgsl_constants(
+    module: &naga::Module,
+    constants: &[(&str, f64)],
+) -> Result<naga::back::PipelineConstants, WgslError> {
+    let key = |o: &naga::Override| match o.id {
+        Some(id) => id.to_string(),
+        None => o.name.clone().unwrap_or_default(),
+    };
+    let mut out = naga::back::PipelineConstants::default();
+    let mut errors = Vec::new();
+    for &(given, value) in constants {
+        let Some((_, o)) = module.overrides.iter().find(|(_, o)| key(o) == given) else {
+            let named = module
+                .overrides
+                .iter()
+                .find(|(_, o)| o.id.is_some() && o.name.as_deref() == Some(given));
+            errors.push(match named {
+                Some((_, o)) => format!("`{given}` has an id: use \"{}\"", key(o)),
+                None => {
+                    let keys: Vec<String> = module
+                        .overrides
+                        .iter()
+                        .map(|(_, o)| format!("\"{}\"", key(o)))
+                        .collect();
+                    format!(
+                        "the module has no pipeline constant \"{given}\"; it has {}",
+                        if keys.is_empty() {
+                            "none".to_string()
+                        } else {
+                            keys.join(", ")
+                        }
+                    )
+                }
+            });
+            continue;
+        };
+        let fits = match module.types[o.ty].inner {
+            naga::TypeInner::Scalar(naga::Scalar { kind, .. }) => match kind {
+                naga::ScalarKind::Bool => value == 0.0 || value == 1.0,
+                naga::ScalarKind::Sint => {
+                    value.fract() == 0.0 && (i32::MIN as f64..=i32::MAX as f64).contains(&value)
+                }
+                naga::ScalarKind::Uint => {
+                    value.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&value)
+                }
+                naga::ScalarKind::Float => true,
+                _ => false,
+            },
+            _ => false,
+        };
+        if !fits {
+            let ty = match module.types[o.ty].inner {
+                naga::TypeInner::Scalar(naga::Scalar { kind, width }) => match kind {
+                    naga::ScalarKind::Bool => "bool".to_string(),
+                    naga::ScalarKind::Sint => format!("i{}", width * 8),
+                    naga::ScalarKind::Uint => format!("u{}", width * 8),
+                    _ => format!("f{}", width * 8),
+                },
+                _ => "not a scalar".to_string(),
+            };
+            errors.push(format!("\"{given}\" is `{ty}`; {value} does not fit"));
+        } else if out.insert(given.to_string(), value).is_some() {
+            errors.push(format!("\"{given}\" is given twice"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(out)
+    } else {
+        Err(WgslError(errors.join("\n")))
+    }
+}
+
 /// Why WGSL given to [`compile_wgsl`] did not compile: naga's message, rendered against the
-/// WGSL source.
+/// WGSL source, or what is wrong with the pipeline constants given.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WgslError(pub String);
+pub struct WgslError(String);
+
+impl WgslError {
+    pub fn message(&self) -> &str {
+        &self.0
+    }
+}
 
 impl std::fmt::Display for WgslError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
