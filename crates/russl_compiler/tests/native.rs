@@ -44,7 +44,7 @@ fn corpus() -> Vec<(String, Artifacts)> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap()
         .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|e| e == "russl"))
+        .filter(|p| p.extension().is_some_and(|e| e == "russl" || e == "wgsl"))
         .collect();
     files.sort();
     files
@@ -52,6 +52,12 @@ fn corpus() -> Vec<(String, Artifacts)> {
         .map(|p| {
             let name = p.file_stem().unwrap().to_string_lossy().into_owned();
             let text = std::fs::read_to_string(&p).unwrap();
+            // A WGSL module goes in through compile_wgsl, as another front end's output would.
+            if p.extension().is_some_and(|e| e == "wgsl") {
+                let a = russl_compiler::compile_wgsl(&text, &[])
+                    .unwrap_or_else(|e| panic!("{name}: {e}"));
+                return (name, a);
+            }
             let a = compile(text.parse().unwrap()).unwrap_or_else(|d| {
                 panic!(
                     "{name}: {:?}",

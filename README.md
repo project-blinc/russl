@@ -197,6 +197,20 @@ fn expander() -> russl_expand::Expander<'static> {
 Modules written with `russl!` and with a framework's macro import each other; a program
 compiles with its root's extension. `russl_build::compile_ext` takes one too.
 
+### WGSL from another front end
+
+A shader language with its own front end can use russl for every other target.
+`russl_compiler::compile_wgsl(source, constants)` takes one WGSL module, with its vertex and
+fragment entry points or a compute one, and returns the same `Artifacts`: MSL, HLSL, SPIR-V and
+GLSL ES, with `reflection.native` giving each target's slots. Pipeline constants are keyed by an
+override's `@id` written as a number, else by its name. The reflection that comes from russl's
+own checking, such as struct twins and vertex inputs, is empty. Errors are naga's, rendered
+against the WGSL. Validation allows every naga capability, so a front end that targets WebGPU
+alone rejects the features WebGPU lacks itself.
+
+The Metal slots are numbered over every binding in the module, for each entry point, so a layout
+built for that module makes every binding visible to every stage.
+
 ## Design
 
 - **Rust syntax**: `fn`, `struct`, `const`, `let`, `if`/`else`, `match`, `for` over ranges,

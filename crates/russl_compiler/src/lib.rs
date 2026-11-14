@@ -291,6 +291,48 @@ pub fn compile_program_ext(
     Ok(artifacts)
 }
 
+/// Compile one module written in WGSL, for a front end that emits WGSL rather than russl
+/// source: validated, then written for every target as [`compile`] writes russl's.
+///
+/// `constants` sets pipeline constants by the key naga looks them up by: the override's
+/// `@id(n)` as `"n"` if it has one, else its name. The others keep their defaults.
+///
+/// Reflection that comes from checking russl source (struct layouts, bindings, vertex inputs,
+/// struct imports) is empty; `reflection.native` and `reflection.constants` are filled.
+/// Validation allows every naga capability, so a front end that targets WebGPU alone checks
+/// for the features WebGPU lacks itself.
+pub fn compile_wgsl(source: &str, constants: &[(&str, f64)]) -> Result<Artifacts, WgslError> {
+    let module =
+        naga::front::wgsl::parse_str(source).map_err(|e| WgslError(e.emit_to_string(source)))?;
+    if module.entry_points.is_empty() {
+        return Err(WgslError("the module has no entry points".to_string()));
+    }
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .map_err(|e| WgslError(e.emit_to_string(source)))?;
+    let values: naga::back::PipelineConstants = constants
+        .iter()
+        .map(|&(key, value)| (key.to_string(), value))
+        .collect();
+    targets::emit(&module, &info, &values).map_err(WgslError)
+}
+
+/// Why WGSL given to [`compile_wgsl`] did not compile: naga's message, rendered against the
+/// WGSL source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WgslError(pub String);
+
+impl std::fmt::Display for WgslError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for WgslError {}
+
 /// Check each given value against the root's pipeline constants, and key it the way naga looks
 /// it up: by the constant's id if it has one, else by name.
 fn specialize(
