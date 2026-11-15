@@ -2,6 +2,7 @@
 //! following the models `native` documents, as for russl source.
 
 use russl_compiler::{HlslSlot, MslSlot, compile, compile_wgsl};
+use std::collections::BTreeMap;
 
 /// A uniform and a storage buffer, a texture with a filtering sampler, a depth texture with a
 /// comparison sampler, and two pipeline constants, one with an id.
@@ -99,6 +100,43 @@ fn hlsl_takes_binding_as_register_and_group_as_space_and_samplers_by_index() {
             ((2, 0), register('t', 0, 2)),
             ((2, 1), HlslSlot::SamplerIndex { index: 1 }),
         ]
+    );
+}
+
+/// The (descriptor set, binding) each decorated variable of a SPIR-V module takes.
+fn spirv_slots(words: &[u32]) -> Vec<(u32, u32)> {
+    const OP_DECORATE: u32 = 71;
+    const BINDING: u32 = 33;
+    const DESCRIPTOR_SET: u32 = 34;
+    let (mut sets, mut bindings) = (BTreeMap::new(), BTreeMap::new());
+    // The header is five words; each instruction leads with its length and opcode.
+    let mut at = 5;
+    while at < words.len() {
+        let (len, op) = ((words[at] >> 16) as usize, words[at] & 0xffff);
+        assert!(len > 0, "a malformed instruction at word {at}");
+        if op == OP_DECORATE && len >= 4 {
+            match words[at + 2] {
+                BINDING => bindings.insert(words[at + 1], words[at + 3]),
+                DESCRIPTOR_SET => sets.insert(words[at + 1], words[at + 3]),
+                _ => None,
+            };
+        }
+        at += len;
+    }
+    let mut slots: Vec<_> = sets
+        .iter()
+        .filter_map(|(id, set)| Some((*set, *bindings.get(id)?)))
+        .collect();
+    slots.sort();
+    slots
+}
+
+#[test]
+fn spirv_takes_group_as_descriptor_set_and_binding_as_binding() {
+    let a = compile_wgsl(SHADER, &[]).unwrap();
+    assert_eq!(
+        spirv_slots(&a.spirv),
+        [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]
     );
 }
 

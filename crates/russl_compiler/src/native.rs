@@ -11,6 +11,9 @@
 //!   selects from the sampler heap at `s0, space0` (comparison samplers `s0, space1`).
 //! - SPIR-V: the descriptor set is the group and the binding is the binding.
 //! - GLSL ES: combined texture-samplers and uniform blocks, bound by the names given here.
+//!
+//! These assignments are a contract for russl source and for WGSL alike: a minor version keeps
+//! them, and changing one is a breaking release. Tests pin each target's.
 
 use naga::back::msl;
 use std::collections::BTreeMap;

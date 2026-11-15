@@ -212,6 +212,9 @@ alone rejects the features WebGPU lacks itself.
 The Metal slots are numbered over every binding in the module, for each entry point, so a layout
 built for that module makes every binding visible to every stage.
 
+The slots in `reflection.native` follow the models `native.rs` documents, for russl source and
+WGSL alike. A minor version keeps them; changing one is a breaking release.
+
 ## Design
 
 - **Rust syntax**: `fn`, `struct`, `const`, `let`, `if`/`else`, `match`, `for` over ranges,
